@@ -4636,6 +4636,28 @@ class YandexClientIdMap(Base):
     updated_at = Column(AwareDateTime(), server_default=func.now(), onupdate=func.now())
 
 
+class TikTokClickIdMap(Base):
+    """TikTok click identifier (ttclid) captured per user, for TikTok Events API.
+
+    Stores the mapping user_id -> ttclid so we can fire server-side conversion
+    events to TikTok Events API 2.0 with the right click id even after the user
+    leaves the /start deep-link flow. Separate table from ``YandexClientIdMap``
+    because the two ad platforms have unrelated domains/semantics.
+    """
+
+    __tablename__ = 'tiktok_click_id_map'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), unique=True, nullable=False)
+    ttclid = Column(String(512), nullable=False)
+    source = Column(String(20), nullable=False, default='telegram', server_default='telegram')
+    registration_sent = Column(Boolean, default=False, server_default=text('false'), nullable=False)
+    trial_sent = Column(Boolean, default=False, server_default=text('false'), nullable=False)
+    first_connected_sent = Column(Boolean, default=False, server_default=text('false'), nullable=False)
+    created_at = Column(AwareDateTime(), server_default=func.now())
+    updated_at = Column(AwareDateTime(), server_default=func.now(), onupdate=func.now())
+
+
 class InfoPage(Base):
     """Static informational page with multilingual title/content (JSONB)."""
 

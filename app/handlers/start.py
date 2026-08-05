@@ -75,25 +75,30 @@ logger = structlog.get_logger(__name__)
 
 
 _SUBID_DELIMITER = '_subid_'
+_TTCLID_PREFIX = 'tt_'
 
 
 def _split_start_param_subid(param: str | None) -> tuple[str | None, str | None]:
     """Extract subid from ``{campaign}_subid_{subid}`` Telegram deeplink format.
 
-    Used to carry Keitaro/affiliate click IDs through /start where space is tight
-    (64 chars, no `?query=`). The campaign portion is returned to let normal
-    AdvertisingCampaign lookup proceed; the subid is stashed in FSM state to be
-    persisted post-registration via :data:`yandex_client_id.upsert_subid`.
+    Used to carry Keitaro/affiliate click IDs, and TikTok's ``ttclid`` (via the
+    ``tt_`` prefix — see ``tiktok_redirect.py`` and ``_TTCLID_PAYLOAD_PREFIX``),
+    through /start where space is tight (64 chars, no `?query=`). The campaign
+    portion is returned to let normal AdvertisingCampaign lookup proceed; the
+    subid is stashed in FSM state to be persisted post-registration via
+    :data:`yandex_client_id.upsert_subid` (or resolved as a ttclid token).
 
-    Returns ``(param, None)`` when no delimiter, when either side is empty, or
-    when the subid would overflow the YandexClientIdMap.subid column (255).
+    Returns ``(param, None)`` when no delimiter, when the subid part is empty,
+    or when the subid would overflow the YandexClientIdMap.subid column (255).
+    The campaign part MAY be empty (e.g. ``_subid_tt_<token>`` with no campaign
+    prefix) — callers should treat an empty/``None`` head as "no campaign".
     """
     if not param or _SUBID_DELIMITER not in param:
         return param, None
     head, _, tail = param.partition(_SUBID_DELIMITER)
-    if not head or not tail or len(tail) > 255:
+    if not tail or len(tail) > 255:
         return param, None
-    return head, tail
+    return head or None, tail
 
 
 async def answer_menu_with_media(message, text: str, keyboard, db) -> None:
@@ -207,6 +212,41 @@ async def _persist_pending_subid_after_registration(
             'Failed to persist pending subid after registration',
             user_id=getattr(user, 'id', None),
             subid=pending_subid,
+            error=str(e),
+            exc_info=True,
+        )
+
+
+async def _persist_pending_ttclid_after_registration(
+    state: FSMContext,
+    user,
+    *,
+    fire_registration: bool,
+) -> None:
+    """Drain ``pending_ttclid`` from FSM state into ``tiktok_click_id_map``.
+
+    Unlike :func:`_persist_pending_subid_after_registration`, this uses its own
+    DB session (via ``tiktok_events_service.store_ttclid_and_fire_registration``)
+    rather than the caller's still-open transaction: firing the registration
+    event requires the ttclid row to be visible to the background task's own
+    session, so it must be committed first — mirrors the CID-persist race fix
+    in ``yandex_offline_conv_service.store_cid_and_fire_registration``.
+    """
+    data = await state.get_data() or {}
+    pending_ttclid = data.get('pending_ttclid')
+    if not pending_ttclid:
+        return
+    try:
+        from app.services import tiktok_events_service as tiktok_events
+
+        if fire_registration:
+            await tiktok_events.store_ttclid_and_fire_registration(user.id, pending_ttclid, source='telegram')
+        else:
+            await tiktok_events.store_ttclid_only(user.id, pending_ttclid, source='telegram')
+    except Exception as e:
+        logger.error(
+            'Failed to persist pending ttclid after registration',
+            user_id=getattr(user, 'id', None),
             error=str(e),
             exc_info=True,
         )
@@ -1180,17 +1220,36 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
 
     # Keitaro/affiliate click ID rides on /start as `{campaign}_subid_{click_id}`
     # (64 chars total). Pull the click_id into FSM state and continue campaign
-    # lookup with the bare campaign portion.
+    # lookup with the bare campaign portion. TikTok's ttclid can't fit directly
+    # (see tiktok_redirect.py), so it rides the same slot as a `tt_<short_token>`
+    # payload that gets resolved back to the full ttclid here.
     if start_parameter:
         campaign_part, subid_from_link = _split_start_param_subid(start_parameter)
         if subid_from_link:
             start_parameter = campaign_part
-            await state.update_data(pending_subid=subid_from_link)
-            logger.info(
-                'Captured subid from /start deeplink',
-                telegram_id=message.from_user.id,
-                campaign=campaign_part,
-            )
+            if subid_from_link.startswith(_TTCLID_PREFIX):
+                short_token = subid_from_link[len(_TTCLID_PREFIX) :]
+                try:
+                    from app.services import tiktok_events_service as tiktok_events
+
+                    ttclid = await tiktok_events.resolve_ttclid_token(short_token)
+                except Exception as e:
+                    logger.warning('Failed to resolve ttclid token from /start deeplink', error=str(e))
+                    ttclid = None
+                if ttclid:
+                    await state.update_data(pending_ttclid=ttclid)
+                    logger.info(
+                        'Captured ttclid from /start deeplink',
+                        telegram_id=message.from_user.id,
+                        campaign=campaign_part,
+                    )
+            else:
+                await state.update_data(pending_subid=subid_from_link)
+                logger.info(
+                    'Captured subid from /start deeplink',
+                    telegram_id=message.from_user.id,
+                    campaign=campaign_part,
+                )
 
     if start_parameter:
         campaign = await get_campaign_by_start_parameter(
@@ -1387,8 +1446,13 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
             await _redeem_pending_coupon(db, state, user, message.answer)
             await _activate_pending_trial(db, state, user, message.answer, message.bot)
             await _persist_pending_subid_after_registration(db, state, user)
+            await _persist_pending_ttclid_after_registration(state, user, fire_registration=False)
             await state.update_data(
-                pending_gift_token=None, pending_coupon_token=None, pending_subid=None, pending_trial=None
+                pending_gift_token=None,
+                pending_coupon_token=None,
+                pending_subid=None,
+                pending_trial=None,
+                pending_ttclid=None,
             )
             # Refresh user to pick up newly created subscriptions
             await db.refresh(user, attribute_names=['subscriptions'])
@@ -2259,6 +2323,7 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
     await _activate_pending_gift_after_registration(db, state, user, callback.message.answer)
     await _redeem_pending_coupon(db, state, user, callback.message.answer)
     await _persist_pending_subid_after_registration(db, state, user)
+    await _persist_pending_ttclid_after_registration(state, user, fire_registration=True)
     # Gift/coupon may have just created a subscription — reload it, otherwise the
     # stale empty list below offers the trial on top of the granted subscription
     try:
@@ -2618,6 +2683,7 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
     await _activate_pending_gift_after_registration(db, state, user, message.answer)
     await _redeem_pending_coupon(db, state, user, message.answer)
     await _persist_pending_subid_after_registration(db, state, user)
+    await _persist_pending_ttclid_after_registration(state, user, fire_registration=True)
     # Gift/coupon may have just created a subscription — reload it, otherwise the
     # stale empty list below offers the trial on top of the granted subscription
     try:
@@ -3074,6 +3140,13 @@ async def required_sub_channel_check(
                             referred_by_id=referrer_id,
                         )
                         await db.refresh(user, ['subscriptions'])
+
+                    # This registration path (required-channel-subscription gate) previously
+                    # never drained pending_subid/pending_ttclid, unlike the other two
+                    # registration completion sites — Keitaro subid and TikTok ttclid
+                    # attribution were silently lost for users routed through here.
+                    await _persist_pending_subid_after_registration(db, state, user)
+                    await _persist_pending_ttclid_after_registration(state, user, fire_registration=True)
 
                     # ИСПРАВЛЕНИЕ БАГА: Очищаем pending_start_payload из state после создания пользователя
                     state_data.pop('pending_start_payload', None)

@@ -800,6 +800,15 @@ class Settings(BaseSettings):
     S2S_POSTBACK_TRIAL_URL: str = ''
     S2S_POSTBACK_PURCHASE_URL: str = ''
 
+    # ── TikTok Events API 2.0 (server-side conversions, bot funnel) ──
+    TIKTOK_EVENTS_ENABLED: bool = False
+    TIKTOK_PIXEL_CODE: str = ''
+    TIKTOK_EVENTS_ACCESS_TOKEN: str = ''
+    TIKTOK_EVENTS_CURRENCY: str = 'RUB'
+    # TikTok has no standard event for "first real VPN connection" — custom name,
+    # kept configurable so it can be remapped to a standard event later without a code change.
+    TIKTOK_EVENT_FIRST_CONNECTED: str = 'VPNFirstConnect'
+
     # RioPay (api.riopay.online) v2.0.1
     RIOPAY_ENABLED: bool = False
     RIOPAY_API_TOKEN: str | None = None  # x-api-token header

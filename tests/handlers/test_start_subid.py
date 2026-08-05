@@ -21,9 +21,10 @@ class TestSplitStartParamSubid:
         assert _split_start_param_subid(None) == (None, None)
         assert _split_start_param_subid('') == ('', None)
 
-    def test_rejects_empty_campaign_part(self) -> None:
-        # `_subid_X` would yield empty head — preserve original, don't split.
-        assert _split_start_param_subid('_subid_xyz') == ('_subid_xyz', None)
+    def test_accepts_empty_campaign_part(self) -> None:
+        # `_subid_X` yields an empty head — treated as "no campaign" (used by
+        # the TikTok redirect flow when no campaign code is supplied).
+        assert _split_start_param_subid('_subid_xyz') == (None, 'xyz')
 
     def test_rejects_empty_subid_part(self) -> None:
         # `clkcl_subid_` would yield empty tail — preserve original.

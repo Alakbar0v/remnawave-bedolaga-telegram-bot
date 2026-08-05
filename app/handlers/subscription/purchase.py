@@ -1103,6 +1103,13 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
         except Exception as e:
             logger.error('Ошибка отправки уведомления о триале', error=e)
 
+        try:
+            from app.services import tiktok_events_service as tiktok_events
+
+            tiktok_events.spawn_bg(tiktok_events.fire_trial_bg(db_user.id))
+        except Exception as exc:
+            logger.debug('Не удалось отправить TikTok trial событие для пользователя', user_id=db_user.id, exc=exc)
+
         subscription_link = get_display_subscription_link(subscription)
         hide_subscription_link = settings.should_hide_subscription_link()
 

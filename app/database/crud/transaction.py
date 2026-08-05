@@ -172,6 +172,18 @@ async def create_transaction(
             except Exception as exc:
                 logger.debug('Не удалось отправить Yandex purchase для пользователя', user_id=user_id, exc=exc)
 
+            # TikTok Events API — same central chokepoint, mirrors the Yandex hook
+            # above. Background task with its own DB session; no-ops when disabled
+            # or no ttclid is stored.
+            try:
+                from app.services import tiktok_events_service as tiktok_events
+
+                tiktok_events.spawn_bg(
+                    tiktok_events.fire_purchase_bg(user_id, abs(amount_kopeks), transaction.id)
+                )
+            except Exception as exc:
+                logger.debug('Не удалось отправить TikTok purchase для пользователя', user_id=user_id, exc=exc)
+
     return transaction
 
 
@@ -243,6 +255,15 @@ async def emit_transaction_side_effects(
             yandex_conv.spawn_bg(yandex_conv.fire_purchase_bg(user_id, abs(amount_kopeks)))
         except Exception as exc:
             logger.debug('Не удалось отправить Yandex purchase для пользователя', user_id=user_id, exc=exc)
+
+        # TikTok Events API — same central chokepoint (deferred path), mirrors
+        # the Yandex hook above.
+        try:
+            from app.services import tiktok_events_service as tiktok_events
+
+            tiktok_events.spawn_bg(tiktok_events.fire_purchase_bg(user_id, abs(amount_kopeks), transaction.id))
+        except Exception as exc:
+            logger.debug('Не удалось отправить TikTok purchase для пользователя', user_id=user_id, exc=exc)
 
 
 async def get_transaction_by_id(db: AsyncSession, transaction_id: int) -> Transaction | None:

@@ -1819,6 +1819,13 @@ class RemnaWaveWebhookService:
             subscription=subscription,
         )
 
+        try:
+            from app.services import tiktok_events_service as tiktok_events
+
+            tiktok_events.spawn_bg(tiktok_events.fire_first_connected_bg(user.id))
+        except Exception as exc:
+            logger.debug('Не удалось отправить TikTok first-connected событие', user_id=user.id, exc=exc)
+
     async def _handle_bandwidth_threshold(
         self, db: AsyncSession, user: User, subscription: Subscription | None, data: dict
     ) -> None:

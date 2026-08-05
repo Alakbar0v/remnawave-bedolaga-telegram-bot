@@ -72,6 +72,7 @@ from .ticket_notifications import (
     router as ticket_notifications_router,
 )
 from .tickets import router as tickets_router
+from .tiktok_redirect import router as tiktok_redirect_router
 from .websocket import router as websocket_router
 from .wheel import router as wheel_router
 from .withdrawal import router as withdrawal_router
@@ -112,6 +113,7 @@ router.include_router(notifications_router)
 router.include_router(info_router)
 router.include_router(branding_router)
 router.include_router(landing_router)
+router.include_router(tiktok_redirect_router)
 router.include_router(media_router)
 router.include_router(news_router)
 router.include_router(info_pages_router)
