@@ -808,6 +808,10 @@ class Settings(BaseSettings):
     # TikTok has no standard event for "first real VPN connection" — custom name,
     # kept configurable so it can be remapped to a standard event later without a code change.
     TIKTOK_EVENT_FIRST_CONNECTED: str = 'VPNFirstConnect'
+    # Events Manager -> Test Events code. While set, every outgoing event is tagged
+    # as a test event (visible in the Test Events panel, excluded from production
+    # stats). Clear it to resume sending live events.
+    TIKTOK_EVENTS_TEST_CODE: str = ''
 
     # RioPay (api.riopay.online) v2.0.1
     RIOPAY_ENABLED: bool = False
