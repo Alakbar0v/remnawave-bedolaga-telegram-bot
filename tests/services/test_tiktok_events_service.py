@@ -49,7 +49,9 @@ def test_is_enabled_requires_all_three(enabled, pixel, token, expected) -> None:
 
 def test_event_payload_shape() -> None:
     with patch.object(tiktok_events.settings, 'TIKTOK_PIXEL_CODE', 'pixel123'):
-        payload = tiktok_events._event_payload('ttclid.abc123', tiktok_events.EVENT_REGISTRATION, 'CompleteRegistration_42')
+        payload = tiktok_events._event_payload(
+            'ttclid.abc123', tiktok_events.EVENT_REGISTRATION, 'CompleteRegistration_42', 42
+        )
 
     assert payload['event_source'] == 'web'
     assert payload['event_source_id'] == 'pixel123'
@@ -57,7 +59,7 @@ def test_event_payload_shape() -> None:
     entry = payload['data'][0]
     assert entry['event'] == 'CompleteRegistration'
     assert entry['event_id'] == 'CompleteRegistration_42'
-    assert entry['user'] == {'ttclid': 'ttclid.abc123'}
+    assert entry['user'] == {'ttclid': 'ttclid.abc123', 'external_id': tiktok_events._hash_external_id(42)}
     assert isinstance(entry['event_time'], int)
     assert 'properties' not in entry
 
@@ -67,12 +69,13 @@ def test_purchase_payload_includes_value_and_currency() -> None:
         patch.object(tiktok_events.settings, 'TIKTOK_PIXEL_CODE', 'pixel123'),
         patch.object(tiktok_events.settings, 'TIKTOK_EVENTS_CURRENCY', 'RUB'),
     ):
-        payload = tiktok_events._purchase_payload('ttclid.abc123', 'purchase_555', 299.0)
+        payload = tiktok_events._purchase_payload('ttclid.abc123', 'purchase_555', 299.0, 42)
 
     entry = payload['data'][0]
     assert entry['event'] == 'CompletePayment'
     assert entry['event_id'] == 'purchase_555'
     assert entry['properties'] == {'currency': 'RUB', 'value': 299.0}
+    assert entry['user']['external_id'] == tiktok_events._hash_external_id(42)
 
 
 # ── _post_event ──────────────────────────────────────────────────────────────
