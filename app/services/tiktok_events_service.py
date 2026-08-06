@@ -14,6 +14,7 @@ handlers/subscription/purchase.py — so bot-only funnels are tracked.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 import time
 
@@ -78,7 +79,12 @@ def _mask_ttclid(ttclid: str) -> str:
     return '*' * (len(ttclid) - 4) + ttclid[-4:]
 
 
-def _event_payload(ttclid: str, event: str, event_id: str) -> dict:
+def _hash_external_id(user_id: int) -> str:
+    """SHA-256 our internal user_id for TikTok's `external_id` match parameter."""
+    return hashlib.sha256(str(user_id).encode('utf-8')).hexdigest()
+
+
+def _event_payload(ttclid: str, event: str, event_id: str, user_id: int) -> dict:
     payload = {
         'event_source': 'web',
         'event_source_id': settings.TIKTOK_PIXEL_CODE,
@@ -87,7 +93,7 @@ def _event_payload(ttclid: str, event: str, event_id: str) -> dict:
                 'event': event,
                 'event_time': int(time.time()),
                 'event_id': event_id,
-                'user': {'ttclid': ttclid},
+                'user': {'ttclid': ttclid, 'external_id': _hash_external_id(user_id)},
             }
         ],
     }
@@ -96,8 +102,8 @@ def _event_payload(ttclid: str, event: str, event_id: str) -> dict:
     return payload
 
 
-def _purchase_payload(ttclid: str, event_id: str, amount_rubles: float) -> dict:
-    payload = _event_payload(ttclid, EVENT_PURCHASE, event_id)
+def _purchase_payload(ttclid: str, event_id: str, amount_rubles: float, user_id: int) -> dict:
+    payload = _event_payload(ttclid, EVENT_PURCHASE, event_id, user_id)
     payload['data'][0]['properties'] = {
         'currency': settings.TIKTOK_EVENTS_CURRENCY or 'RUB',
         'value': amount_rubles,
@@ -297,7 +303,7 @@ async def on_registration(db: AsyncSession, user_id: int) -> None:
             return
 
         success = await _post_event(
-            _event_payload(row.ttclid, EVENT_REGISTRATION, f'{EVENT_REGISTRATION}_{user_id}'),
+            _event_payload(row.ttclid, EVENT_REGISTRATION, f'{EVENT_REGISTRATION}_{user_id}', user_id),
             'registration',
             row.ttclid,
         )
@@ -320,7 +326,7 @@ async def on_trial(db: AsyncSession, user_id: int) -> None:
             return
 
         success = await _post_event(
-            _event_payload(row.ttclid, EVENT_TRIAL, f'{EVENT_TRIAL}_{user_id}'),
+            _event_payload(row.ttclid, EVENT_TRIAL, f'{EVENT_TRIAL}_{user_id}', user_id),
             'trial',
             row.ttclid,
         )
@@ -344,7 +350,7 @@ async def on_first_connected(db: AsyncSession, user_id: int) -> None:
 
         event = settings.TIKTOK_EVENT_FIRST_CONNECTED
         success = await _post_event(
-            _event_payload(row.ttclid, event, f'{event}_{user_id}'),
+            _event_payload(row.ttclid, event, f'{event}_{user_id}', user_id),
             'first_connected',
             row.ttclid,
         )
@@ -367,7 +373,7 @@ async def on_purchase(db: AsyncSession, user_id: int, amount_kopeks: int, transa
             return
 
         amount_rubles = amount_kopeks / 100
-        payload = _purchase_payload(row.ttclid, f'purchase_{transaction_id}', amount_rubles)
+        payload = _purchase_payload(row.ttclid, f'purchase_{transaction_id}', amount_rubles, user_id)
         success = await _post_event(payload, 'purchase', row.ttclid)
         if success:
             logger.info('tiktok purchase event sent', user_id=user_id, amount=amount_rubles)
