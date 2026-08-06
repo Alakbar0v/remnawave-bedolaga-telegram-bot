@@ -79,7 +79,7 @@ def _mask_ttclid(ttclid: str) -> str:
 
 
 def _event_payload(ttclid: str, event: str, event_id: str) -> dict:
-    return {
+    payload = {
         'event_source': 'web',
         'event_source_id': settings.TIKTOK_PIXEL_CODE,
         'data': [
@@ -91,6 +91,9 @@ def _event_payload(ttclid: str, event: str, event_id: str) -> dict:
             }
         ],
     }
+    if settings.TIKTOK_EVENTS_TEST_CODE:
+        payload['test_event_code'] = settings.TIKTOK_EVENTS_TEST_CODE
+    return payload
 
 
 def _purchase_payload(ttclid: str, event_id: str, amount_rubles: float) -> dict:
