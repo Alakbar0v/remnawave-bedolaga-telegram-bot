@@ -20,18 +20,25 @@ async def upsert_ttclid(
     user_id: int,
     ttclid: str,
     source: str = 'telegram',
+    ttp: str | None = None,
 ) -> TikTokClickIdMap:
-    """Insert or update TikTok click id for a user (race-safe via ON CONFLICT)."""
+    """Insert or update TikTok click id (and optional `_ttp` cookie) for a user.
+
+    Race-safe via ON CONFLICT. `ttp` is only overwritten when a new value is
+    given, so a later call without it doesn't blow away one captured earlier.
+    """
     now = datetime.now(UTC)
     values = {
         'ttclid': ttclid,
         'source': source,
         'updated_at': now,
     }
+    if ttp:
+        values['ttp'] = ttp
 
     stmt = (
         pg_insert(TikTokClickIdMap)
-        .values(user_id=user_id, ttclid=ttclid, source=source)
+        .values(user_id=user_id, ttclid=ttclid, source=source, ttp=ttp)
         .on_conflict_do_update(index_elements=['user_id'], set_=values)
         .returning(TikTokClickIdMap)
     )

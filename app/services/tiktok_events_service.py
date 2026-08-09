@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import re
 import time
 
@@ -46,6 +47,7 @@ EVENT_TRIAL = 'StartTrial'
 EVENT_PURCHASE = 'CompletePayment'
 
 _TTCLID_RE = re.compile(r'^[A-Za-z0-9._-]{1,512}$')
+_TTP_RE = re.compile(r'^[A-Za-z0-9._-]{1,256}$')
 _http_client: httpx.AsyncClient | None = None
 
 
@@ -73,6 +75,15 @@ def _normalize_ttclid(ttclid: str | None) -> str | None:
     return ttclid
 
 
+def _normalize_ttp(ttp: str | None) -> str | None:
+    if not isinstance(ttp, str):
+        return None
+    ttp = ttp.strip()
+    if not ttp or not _TTP_RE.match(ttp):
+        return None
+    return ttp
+
+
 def _mask_ttclid(ttclid: str) -> str:
     if len(ttclid) <= 4:
         return '****'
@@ -84,7 +95,11 @@ def _hash_external_id(user_id: int) -> str:
     return hashlib.sha256(str(user_id).encode('utf-8')).hexdigest()
 
 
-def _event_payload(ttclid: str, event: str, event_id: str, user_id: int) -> dict:
+def _event_payload(ttclid: str, event: str, event_id: str, user_id: int, ttp: str | None = None) -> dict:
+    user = {'ttclid': ttclid, 'external_id': _hash_external_id(user_id)}
+    normalized_ttp = _normalize_ttp(ttp)
+    if normalized_ttp:
+        user['ttp'] = normalized_ttp
     payload = {
         'event_source': 'web',
         'event_source_id': settings.TIKTOK_PIXEL_CODE,
@@ -93,7 +108,7 @@ def _event_payload(ttclid: str, event: str, event_id: str, user_id: int) -> dict
                 'event': event,
                 'event_time': int(time.time()),
                 'event_id': event_id,
-                'user': {'ttclid': ttclid, 'external_id': _hash_external_id(user_id)},
+                'user': user,
             }
         ],
     }
@@ -102,8 +117,8 @@ def _event_payload(ttclid: str, event: str, event_id: str, user_id: int) -> dict
     return payload
 
 
-def _purchase_payload(ttclid: str, event_id: str, amount_rubles: float, user_id: int) -> dict:
-    payload = _event_payload(ttclid, EVENT_PURCHASE, event_id, user_id)
+def _purchase_payload(ttclid: str, event_id: str, amount_rubles: float, user_id: int, ttp: str | None = None) -> dict:
+    payload = _event_payload(ttclid, EVENT_PURCHASE, event_id, user_id, ttp=ttp)
     payload['data'][0]['properties'] = {
         'currency': settings.TIKTOK_EVENTS_CURRENCY or 'RUB',
         'value': amount_rubles,
@@ -237,15 +252,16 @@ async def store_ttclid(
     ttclid: str | None,
     *,
     source: str = 'telegram',
+    ttp: str | None = None,
 ) -> bool:
-    """Store TikTok click id for a user. Returns True if stored."""
+    """Store TikTok click id (and optional `_ttp` cookie) for a user. Returns True if stored."""
     normalized = _normalize_ttclid(ttclid)
     if not normalized:
         return False
 
     try:
-        await upsert_ttclid(db, user_id, normalized, source=source)
-        logger.info('stored ttclid', user_id=user_id, source=source)
+        await upsert_ttclid(db, user_id, normalized, source=source, ttp=_normalize_ttp(ttp))
+        logger.info('stored ttclid', user_id=user_id, source=source, has_ttp=bool(ttp))
         return True
     except Exception as exc:
         logger.error('failed to store ttclid', user_id=user_id, error=str(exc))
@@ -257,6 +273,7 @@ async def store_ttclid_and_fire_registration(
     ttclid: str | None,
     *,
     source: str = 'telegram',
+    ttp: str | None = None,
 ) -> None:
     """Store ttclid and fire registration conversion in background (best-effort).
 
@@ -266,7 +283,7 @@ async def store_ttclid_and_fire_registration(
         return
     try:
         async with AsyncSessionLocal() as db:
-            stored = await store_ttclid(db, user_id, ttclid, source=source)
+            stored = await store_ttclid(db, user_id, ttclid, source=source, ttp=ttp)
             if stored:
                 await db.commit()
                 spawn_bg(fire_registration_bg(user_id))
@@ -279,13 +296,14 @@ async def store_ttclid_only(
     ttclid: str | None,
     *,
     source: str = 'telegram',
+    ttp: str | None = None,
 ) -> None:
     """Persist a freshly-provided ttclid WITHOUT firing a registration event."""
     if not _is_enabled() or not ttclid:
         return
     try:
         async with AsyncSessionLocal() as db:
-            stored = await store_ttclid(db, user_id, ttclid, source=source)
+            stored = await store_ttclid(db, user_id, ttclid, source=source, ttp=ttp)
             if stored:
                 await db.commit()
     except Exception as exc:
@@ -303,7 +321,7 @@ async def on_registration(db: AsyncSession, user_id: int) -> None:
             return
 
         success = await _post_event(
-            _event_payload(row.ttclid, EVENT_REGISTRATION, f'{EVENT_REGISTRATION}_{user_id}', user_id),
+            _event_payload(row.ttclid, EVENT_REGISTRATION, f'{EVENT_REGISTRATION}_{user_id}', user_id, ttp=row.ttp),
             'registration',
             row.ttclid,
         )
@@ -326,7 +344,7 @@ async def on_trial(db: AsyncSession, user_id: int) -> None:
             return
 
         success = await _post_event(
-            _event_payload(row.ttclid, EVENT_TRIAL, f'{EVENT_TRIAL}_{user_id}', user_id),
+            _event_payload(row.ttclid, EVENT_TRIAL, f'{EVENT_TRIAL}_{user_id}', user_id, ttp=row.ttp),
             'trial',
             row.ttclid,
         )
@@ -350,7 +368,7 @@ async def on_first_connected(db: AsyncSession, user_id: int) -> None:
 
         event = settings.TIKTOK_EVENT_FIRST_CONNECTED
         success = await _post_event(
-            _event_payload(row.ttclid, event, f'{event}_{user_id}', user_id),
+            _event_payload(row.ttclid, event, f'{event}_{user_id}', user_id, ttp=row.ttp),
             'first_connected',
             row.ttclid,
         )
@@ -373,7 +391,7 @@ async def on_purchase(db: AsyncSession, user_id: int, amount_kopeks: int, transa
             return
 
         amount_rubles = amount_kopeks / 100
-        payload = _purchase_payload(row.ttclid, f'purchase_{transaction_id}', amount_rubles, user_id)
+        payload = _purchase_payload(row.ttclid, f'purchase_{transaction_id}', amount_rubles, user_id, ttp=row.ttp)
         success = await _post_event(payload, 'purchase', row.ttclid)
         if success:
             logger.info('tiktok purchase event sent', user_id=user_id, amount=amount_rubles)
@@ -381,17 +399,31 @@ async def on_purchase(db: AsyncSession, user_id: int, amount_kopeks: int, transa
         logger.error('tiktok purchase event failed', user_id=user_id, error=str(exc))
 
 
-async def resolve_ttclid_token(short_token: str) -> str | None:
-    """Resolve a short redirect token (see tiktok_redirect.py) back to the full ttclid.
+async def resolve_ttclid_token(short_token: str) -> tuple[str | None, str | None]:
+    """Resolve a short redirect token (see tiktok_redirect.py) back to (ttclid, ttp).
 
-    Reads the cache key written by GET /cabinet/go/tiktok. Fail-soft: returns
-    None on any cache error or expired/unknown token.
+    Reads the cache key written by GET /cabinet/go/tiktok, which stores a JSON
+    blob of ``{"ttclid": ..., "ttp": ...}``. Also accepts a bare ttclid string
+    for tokens cached by an older version of that endpoint (pre-ttp), which
+    may still be alive within the 24h TTL right after a deploy. Fail-soft:
+    returns ``(None, None)`` on any cache error or expired/unknown token.
     """
     if not short_token:
-        return None
+        return None, None
     try:
         value = await cache.get(f'ttclid:token:{short_token}')
     except Exception as exc:
         logger.warning('Failed to resolve ttclid token', token=short_token, error=str(exc))
-        return None
-    return _normalize_ttclid(value)
+        return None, None
+
+    if value is None:
+        return None, None
+
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return _normalize_ttclid(value), None
+
+    if not isinstance(parsed, dict):
+        return None, None
+    return _normalize_ttclid(parsed.get('ttclid')), _normalize_ttp(parsed.get('ttp'))

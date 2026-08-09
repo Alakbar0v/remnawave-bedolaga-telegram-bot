@@ -14,6 +14,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -62,6 +63,24 @@ def test_event_payload_shape() -> None:
     assert entry['user'] == {'ttclid': 'ttclid.abc123', 'external_id': tiktok_events._hash_external_id(42)}
     assert isinstance(entry['event_time'], int)
     assert 'properties' not in entry
+
+
+def test_event_payload_includes_ttp_when_given() -> None:
+    with patch.object(tiktok_events.settings, 'TIKTOK_PIXEL_CODE', 'pixel123'):
+        payload = tiktok_events._event_payload(
+            'ttclid.abc123', tiktok_events.EVENT_REGISTRATION, 'CompleteRegistration_42', 42, ttp='ttp.cookie456'
+        )
+
+    assert payload['data'][0]['user']['ttp'] == 'ttp.cookie456'
+
+
+def test_event_payload_omits_ttp_when_invalid() -> None:
+    with patch.object(tiktok_events.settings, 'TIKTOK_PIXEL_CODE', 'pixel123'):
+        payload = tiktok_events._event_payload(
+            'ttclid.abc123', tiktok_events.EVENT_REGISTRATION, 'CompleteRegistration_42', 42, ttp='bad ttp!'
+        )
+
+    assert 'ttp' not in payload['data'][0]['user']
 
 
 def test_purchase_payload_includes_value_and_currency() -> None:
@@ -194,7 +213,7 @@ async def test_store_ttclid_only_noop_when_disabled() -> None:
 
 @pytest.mark.asyncio
 async def test_on_registration_skips_when_already_sent() -> None:
-    row = SimpleNamespace(ttclid='ttclid.abc123', registration_sent=True)
+    row = SimpleNamespace(ttclid='ttclid.abc123', ttp=None, registration_sent=True)
     with (
         patch.object(tiktok_events, '_is_enabled', return_value=True),
         patch.object(tiktok_events, 'get_ttclid', AsyncMock(return_value=row)),
@@ -217,7 +236,7 @@ async def test_on_registration_skips_without_ttclid_row() -> None:
 
 @pytest.mark.asyncio
 async def test_on_registration_fires_and_marks_sent() -> None:
-    row = SimpleNamespace(ttclid='ttclid.abc123', registration_sent=False)
+    row = SimpleNamespace(ttclid='ttclid.abc123', ttp=None, registration_sent=False)
     db = AsyncMock()
     with (
         patch.object(tiktok_events, '_is_enabled', return_value=True),
@@ -236,7 +255,7 @@ async def test_on_registration_fires_and_marks_sent() -> None:
 async def test_on_purchase_fires_every_call_no_dedup_flag() -> None:
     """Unlike registration/trial/first-connected, purchases have no dedup flag —
     every completed payment should fire its own event."""
-    row = SimpleNamespace(ttclid='ttclid.abc123')
+    row = SimpleNamespace(ttclid='ttclid.abc123', ttp=None)
     db = AsyncMock()
     with (
         patch.object(tiktok_events, '_is_enabled', return_value=True),
@@ -265,21 +284,40 @@ async def test_on_purchase_noop_without_ttclid() -> None:
 
 @pytest.mark.asyncio
 async def test_resolve_ttclid_token_reads_cache_key() -> None:
-    with patch.object(tiktok_events.cache, 'get', AsyncMock(return_value='ttclid.abc123')) as get_mock:
+    cached = json.dumps({'ttclid': 'ttclid.abc123', 'ttp': 'ttp.cookie456'})
+    with patch.object(tiktok_events.cache, 'get', AsyncMock(return_value=cached)) as get_mock:
         result = await tiktok_events.resolve_ttclid_token('shorttok123')
 
     get_mock.assert_awaited_once_with('ttclid:token:shorttok123')
-    assert result == 'ttclid.abc123'
+    assert result == ('ttclid.abc123', 'ttp.cookie456')
+
+
+@pytest.mark.asyncio
+async def test_resolve_ttclid_token_without_ttp() -> None:
+    cached = json.dumps({'ttclid': 'ttclid.abc123', 'ttp': None})
+    with patch.object(tiktok_events.cache, 'get', AsyncMock(return_value=cached)):
+        result = await tiktok_events.resolve_ttclid_token('shorttok123')
+    assert result == ('ttclid.abc123', None)
+
+
+@pytest.mark.asyncio
+async def test_resolve_ttclid_token_accepts_legacy_bare_string() -> None:
+    """Tokens cached by the pre-ttp version of /cabinet/go/tiktok store a bare
+    ttclid string rather than JSON — must still resolve during the rollout
+    window (24h cache TTL)."""
+    with patch.object(tiktok_events.cache, 'get', AsyncMock(return_value='ttclid.abc123')):
+        result = await tiktok_events.resolve_ttclid_token('shorttok123')
+    assert result == ('ttclid.abc123', None)
 
 
 @pytest.mark.asyncio
 async def test_resolve_ttclid_token_returns_none_when_missing() -> None:
     with patch.object(tiktok_events.cache, 'get', AsyncMock(return_value=None)):
         result = await tiktok_events.resolve_ttclid_token('unknowntoken')
-    assert result is None
+    assert result == (None, None)
 
 
 @pytest.mark.asyncio
 async def test_resolve_ttclid_token_empty_input() -> None:
     result = await tiktok_events.resolve_ttclid_token('')
-    assert result is None
+    assert result == (None, None)
