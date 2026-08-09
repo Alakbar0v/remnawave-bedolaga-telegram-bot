@@ -11,6 +11,7 @@ app/handlers/start.py `_split_start_param_subid`), with payload `tt_<token>`.
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 
@@ -28,6 +29,7 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix='/go', tags=['TikTok Redirect'])
 
 _TTCLID_PATTERN = r'^[A-Za-z0-9._-]{1,512}$'
+_TTP_PATTERN = r'^[A-Za-z0-9._-]{1,256}$'
 _CAMPAIGN_PATTERN = r'^[A-Za-z0-9_-]{1,42}$'
 _START_PARAM_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 _SUBID_DELIMITER = '_subid_'
@@ -40,6 +42,7 @@ async def tiktok_redirect(
     request: Request,
     ttclid: str = Query(..., pattern=_TTCLID_PATTERN),
     campaign: str | None = Query(None, pattern=_CAMPAIGN_PATTERN),
+    ttp: str | None = Query(None, pattern=_TTP_PATTERN),
 ) -> RedirectResponse:
     """Capture a TikTok ttclid and redirect to the bot's /start deep link."""
     client_ip = get_client_ip(request)
@@ -60,7 +63,8 @@ async def tiktok_redirect(
     token = secrets.token_urlsafe(9)  # 12 url-safe chars, well within the Telegram deep-link alphabet
 
     try:
-        await cache.set(f'ttclid:token:{token}', ttclid, expire=_TOKEN_TTL_SECONDS)
+        cached_value = json.dumps({'ttclid': ttclid, 'ttp': ttp})
+        await cache.set(f'ttclid:token:{token}', cached_value, expire=_TOKEN_TTL_SECONDS)
     except Exception:
         logger.warning('Failed to cache ttclid token', token=token)
 
@@ -75,6 +79,6 @@ async def tiktok_redirect(
         )
 
     return RedirectResponse(
-        url=f'https://t.me/{bot_username}?start={start_param}',
+        url=f'tg://resolve?domain={bot_username}&start={start_param}',
         status_code=status.HTTP_302_FOUND,
     )

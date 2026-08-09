@@ -68,8 +68,25 @@ async def test_drain_fires_registration_for_new_user(monkeypatch: pytest.MonkeyP
 
     await _persist_pending_ttclid_after_registration(state, user, fire_registration=True)
 
-    store_and_fire_mock.assert_awaited_once_with(42, 'ttclid.abc123', source='telegram')
+    store_and_fire_mock.assert_awaited_once_with(42, 'ttclid.abc123', source='telegram', ttp=None)
     store_only_mock.assert_not_called()
+
+
+@pytest.mark.anyio('asyncio')
+async def test_drain_passes_through_pending_ttp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The `_ttp` cookie value captured alongside ttclid must ride along into
+    store_ttclid_and_fire_registration for TikTok Events API advanced matching."""
+    user = SimpleNamespace(id=42)
+    state = SimpleNamespace(
+        get_data=AsyncMock(return_value={'pending_ttclid': 'ttclid.abc123', 'pending_ttp': 'ttp.cookie456'})
+    )
+
+    store_and_fire_mock = AsyncMock()
+    monkeypatch.setattr('app.services.tiktok_events_service.store_ttclid_and_fire_registration', store_and_fire_mock)
+
+    await _persist_pending_ttclid_after_registration(state, user, fire_registration=True)
+
+    store_and_fire_mock.assert_awaited_once_with(42, 'ttclid.abc123', source='telegram', ttp='ttp.cookie456')
 
 
 @pytest.mark.anyio('asyncio')
@@ -87,7 +104,7 @@ async def test_drain_stores_only_for_existing_user(monkeypatch: pytest.MonkeyPat
 
     await _persist_pending_ttclid_after_registration(state, user, fire_registration=False)
 
-    store_only_mock.assert_awaited_once_with(42, 'ttclid.abc123', source='telegram')
+    store_only_mock.assert_awaited_once_with(42, 'ttclid.abc123', source='telegram', ttp=None)
     store_and_fire_mock.assert_not_called()
 
 

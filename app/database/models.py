@@ -4650,6 +4650,7 @@ class TikTokClickIdMap(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), unique=True, nullable=False)
     ttclid = Column(String(512), nullable=False)
+    ttp = Column(String(256), nullable=True)
     source = Column(String(20), nullable=False, default='telegram', server_default='telegram')
     registration_sent = Column(Boolean, default=False, server_default=text('false'), nullable=False)
     trial_sent = Column(Boolean, default=False, server_default=text('false'), nullable=False)

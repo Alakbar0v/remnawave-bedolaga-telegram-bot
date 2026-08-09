@@ -3,7 +3,7 @@
 Telegram's /start deep link is capped at 64 chars (A-Za-z0-9_- only), but
 TikTok's ttclid routinely exceeds that. This endpoint stashes the full ttclid
 in the cache behind a short token and redirects to
-`https://t.me/<bot>?start={campaign}_subid_tt_<token>` (or, with no campaign,
+`tg://resolve?domain=<bot>&start={campaign}_subid_tt_<token>` (or, with no campaign,
 `_subid_tt_<token>` — an empty campaign head, which `_split_start_param_subid`
 must treat as "no campaign").
 
@@ -14,6 +14,7 @@ ASGI TestClient, since the logic under test is entirely in the handler body.
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -41,11 +42,35 @@ async def test_redirect_with_campaign_builds_expected_start_param():
         patch.object(tiktok_redirect_module.cache, 'set', AsyncMock(return_value=True)) as cache_set_mock,
         patch.object(tiktok_redirect_module.secrets, 'token_urlsafe', return_value='shorttok1234'),
     ):
-        response = await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign='tiktok1')
+        response = await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign='tiktok1', ttp=None)
 
     assert response.status_code == 302
-    assert response.headers['location'] == 'https://t.me/mybot?start=tiktok1_subid_tt_shorttok1234'
-    cache_set_mock.assert_awaited_once_with('ttclid:token:shorttok1234', 'ttclid.abcXYZ123', expire=86400)
+    assert response.headers['location'] == 'tg://resolve?domain=mybot&start=tiktok1_subid_tt_shorttok1234'
+    cache_set_mock.assert_awaited_once_with(
+        'ttclid:token:shorttok1234',
+        json.dumps({'ttclid': 'ttclid.abcXYZ123', 'ttp': None}),
+        expire=86400,
+    )
+
+
+@pytest.mark.asyncio
+async def test_redirect_caches_ttp_alongside_ttclid():
+    with (
+        patch.object(tiktok_redirect_module.RateLimitCache, 'is_ip_rate_limited', AsyncMock(return_value=False)),
+        patch.object(tiktok_redirect_module.settings, 'BOT_USERNAME', 'mybot'),
+        patch.object(tiktok_redirect_module.cache, 'set', AsyncMock(return_value=True)) as cache_set_mock,
+        patch.object(tiktok_redirect_module.secrets, 'token_urlsafe', return_value='shorttok1234'),
+    ):
+        response = await tiktok_redirect(
+            _fake_request(), ttclid='ttclid.abcXYZ123', campaign='tiktok1', ttp='ttp.cookie456'
+        )
+
+    assert response.status_code == 302
+    cache_set_mock.assert_awaited_once_with(
+        'ttclid:token:shorttok1234',
+        json.dumps({'ttclid': 'ttclid.abcXYZ123', 'ttp': 'ttp.cookie456'}),
+        expire=86400,
+    )
 
 
 @pytest.mark.asyncio
@@ -58,10 +83,10 @@ async def test_redirect_without_campaign_uses_empty_head_format():
         patch.object(tiktok_redirect_module.cache, 'set', AsyncMock(return_value=True)),
         patch.object(tiktok_redirect_module.secrets, 'token_urlsafe', return_value='shorttok1234'),
     ):
-        response = await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign=None)
+        response = await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign=None, ttp=None)
 
     assert response.status_code == 302
-    start_param = response.headers['location'].split('?start=')[1]
+    start_param = response.headers['location'].split('start=')[1]
     assert start_param == '_subid_tt_shorttok1234'
 
     from app.handlers.start import _split_start_param_subid
@@ -79,9 +104,9 @@ async def test_redirect_at_the_64_char_boundary_succeeds():
         patch.object(tiktok_redirect_module.cache, 'set', AsyncMock(return_value=True)),
         patch.object(tiktok_redirect_module.secrets, 'token_urlsafe', return_value='shorttok1234'),
     ):
-        response = await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign=campaign)
+        response = await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign=campaign, ttp=None)
 
-    start_param = response.headers['location'].split('?start=')[1]
+    start_param = response.headers['location'].split('start=')[1]
     assert len(start_param) == 64
 
 
@@ -99,7 +124,7 @@ async def test_redirect_rejects_campaign_too_long_for_deep_link():
         patch.object(tiktok_redirect_module.secrets, 'token_urlsafe', return_value='shorttok1234'),
     ):
         with pytest.raises(HTTPException) as exc_info:
-            await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign=too_long_campaign)
+            await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign=too_long_campaign, ttp=None)
 
     assert exc_info.value.status_code == 400
 
@@ -111,7 +136,7 @@ async def test_redirect_missing_bot_username_returns_503():
         patch.object(tiktok_redirect_module.settings, 'BOT_USERNAME', None),
     ):
         with pytest.raises(HTTPException) as exc_info:
-            await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign=None)
+            await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign=None, ttp=None)
 
     assert exc_info.value.status_code == 503
 
@@ -120,7 +145,7 @@ async def test_redirect_missing_bot_username_returns_503():
 async def test_redirect_rate_limited_returns_429():
     with patch.object(tiktok_redirect_module.RateLimitCache, 'is_ip_rate_limited', AsyncMock(return_value=True)):
         with pytest.raises(HTTPException) as exc_info:
-            await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign=None)
+            await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign=None, ttp=None)
 
     assert exc_info.value.status_code == 429
 
@@ -131,7 +156,7 @@ async def test_redirect_rejects_campaign_containing_subid_delimiter():
         patch.object(tiktok_redirect_module.RateLimitCache, 'is_ip_rate_limited', AsyncMock(return_value=False)),
     ):
         with pytest.raises(HTTPException) as exc_info:
-            await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign='foo_subid_bar')
+            await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign='foo_subid_bar', ttp=None)
 
     assert exc_info.value.status_code == 400
 
@@ -145,6 +170,6 @@ async def test_redirect_survives_cache_failure():
         patch.object(tiktok_redirect_module.cache, 'set', AsyncMock(side_effect=RuntimeError('redis down'))),
         patch.object(tiktok_redirect_module.secrets, 'token_urlsafe', return_value='shorttok1234'),
     ):
-        response = await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign='tiktok1')
+        response = await tiktok_redirect(_fake_request(), ttclid='ttclid.abcXYZ123', campaign='tiktok1', ttp=None)
 
     assert response.status_code == 302
