@@ -37,14 +37,13 @@ _TOKEN_TTL_SECONDS = 86400
 _MAX_START_PARAM_LEN = 64
 
 
-@router.get('/tiktok', include_in_schema=True)
-async def tiktok_redirect(
+async def _build_deep_link(
     request: Request,
-    ttclid: str = Query(..., pattern=_TTCLID_PATTERN),
-    campaign: str | None = Query(None, pattern=_CAMPAIGN_PATTERN),
-    ttp: str | None = Query(None, pattern=_TTP_PATTERN),
-) -> RedirectResponse:
-    """Capture a TikTok ttclid and redirect to the bot's /start deep link."""
+    ttclid: str,
+    campaign: str | None,
+    ttp: str | None,
+) -> str:
+    """Capture a TikTok ttclid and return the bot's /start deep link URL."""
     client_ip = get_client_ip(request)
     if await RateLimitCache.is_ip_rate_limited(client_ip, 'tiktok_redirect', limit=30, window=60, fail_closed=True):
         raise HTTPException(
@@ -78,7 +77,31 @@ async def tiktok_redirect(
             detail='Campaign code too long for a TikTok deep link',
         )
 
-    return RedirectResponse(
-        url=f'tg://resolve?domain={bot_username}&start={start_param}',
-        status_code=status.HTTP_302_FOUND,
-    )
+    return f'tg://resolve?domain={bot_username}&start={start_param}'
+
+
+@router.get('/tiktok', include_in_schema=True)
+async def tiktok_redirect(
+    request: Request,
+    ttclid: str = Query(..., pattern=_TTCLID_PATTERN),
+    campaign: str | None = Query(None, pattern=_CAMPAIGN_PATTERN),
+    ttp: str | None = Query(None, pattern=_TTP_PATTERN),
+) -> RedirectResponse:
+    """No-JS fallback: capture ttclid and 302 straight to the bot's /start deep link."""
+    deep_link = await _build_deep_link(request, ttclid, campaign, ttp)
+    return RedirectResponse(url=deep_link, status_code=status.HTTP_302_FOUND)
+
+
+@router.get('/tiktok/json', include_in_schema=True)
+async def tiktok_redirect_json(
+    request: Request,
+    ttclid: str = Query(..., pattern=_TTCLID_PATTERN),
+    campaign: str | None = Query(None, pattern=_CAMPAIGN_PATTERN),
+    ttp: str | None = Query(None, pattern=_TTP_PATTERN),
+) -> dict[str, str]:
+    """JS variant: same capture logic, returned as JSON so the landing page can
+    prefetch the deep link in the background and open it instantly on click,
+    instead of navigating the browser through this endpoint (see `_build_deep_link`,
+    and the frontend script in the ConsiliumVPN landing page)."""
+    deep_link = await _build_deep_link(request, ttclid, campaign, ttp)
+    return {'url': deep_link}

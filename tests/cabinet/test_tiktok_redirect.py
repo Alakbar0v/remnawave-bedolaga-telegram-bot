@@ -22,7 +22,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.cabinet.routes import tiktok_redirect as tiktok_redirect_module
-from app.cabinet.routes.tiktok_redirect import tiktok_redirect
+from app.cabinet.routes.tiktok_redirect import tiktok_redirect, tiktok_redirect_json
 
 
 def _fake_request(ip: str = '203.0.113.5') -> SimpleNamespace:
@@ -32,6 +32,11 @@ def _fake_request(ip: str = '203.0.113.5') -> SimpleNamespace:
 def test_route_registered(registered_paths):
     assert '/cabinet/go/tiktok' in registered_paths
     assert 'GET' in registered_paths['/cabinet/go/tiktok']
+
+
+def test_json_route_registered(registered_paths):
+    assert '/cabinet/go/tiktok/json' in registered_paths
+    assert 'GET' in registered_paths['/cabinet/go/tiktok/json']
 
 
 @pytest.mark.asyncio
@@ -71,6 +76,37 @@ async def test_redirect_caches_ttp_alongside_ttclid():
         json.dumps({'ttclid': 'ttclid.abcXYZ123', 'ttp': 'ttp.cookie456'}),
         expire=86400,
     )
+
+
+@pytest.mark.asyncio
+async def test_json_variant_returns_same_deep_link_as_redirect():
+    """The background-prefetch endpoint must build the exact same deep link
+    the 302 redirect would have — same helper, same cache-write side effect."""
+    with (
+        patch.object(tiktok_redirect_module.RateLimitCache, 'is_ip_rate_limited', AsyncMock(return_value=False)),
+        patch.object(tiktok_redirect_module.settings, 'BOT_USERNAME', 'mybot'),
+        patch.object(tiktok_redirect_module.cache, 'set', AsyncMock(return_value=True)) as cache_set_mock,
+        patch.object(tiktok_redirect_module.secrets, 'token_urlsafe', return_value='shorttok1234'),
+    ):
+        result = await tiktok_redirect_json(
+            _fake_request(), ttclid='ttclid.abcXYZ123', campaign='tiktok1', ttp=None
+        )
+
+    assert result == {'url': 'tg://resolve?domain=mybot&start=tiktok1_subid_tt_shorttok1234'}
+    cache_set_mock.assert_awaited_once_with(
+        'ttclid:token:shorttok1234',
+        json.dumps({'ttclid': 'ttclid.abcXYZ123', 'ttp': None}),
+        expire=86400,
+    )
+
+
+@pytest.mark.asyncio
+async def test_json_variant_rate_limited_returns_429():
+    with patch.object(tiktok_redirect_module.RateLimitCache, 'is_ip_rate_limited', AsyncMock(return_value=True)):
+        with pytest.raises(HTTPException) as exc_info:
+            await tiktok_redirect_json(_fake_request(), ttclid='ttclid.abcXYZ123', campaign=None, ttp=None)
+
+    assert exc_info.value.status_code == 429
 
 
 @pytest.mark.asyncio
