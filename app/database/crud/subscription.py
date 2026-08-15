@@ -117,6 +117,49 @@ def is_active_paid_subscription(subscription: Subscription | None) -> bool:
     )
 
 
+_BLOCKING_SUBSCRIPTION_STATUSES: frozenset[str] = frozenset(
+    {
+        SubscriptionStatus.ACTIVE.value,
+        SubscriptionStatus.DISABLED.value,
+    }
+)
+
+
+async def user_has_active_subscription(db: AsyncSession, user_id: int) -> bool:
+    """True if the user has a subscription that should block a new purchase.
+
+    Matches ACTIVE-with-future-end_date, AND DISABLED-with-future-end_date
+    (gated — e.g. channel-membership enforcement, see
+    app/handlers/channel_member.py, app/services/broadcast_service.py — the
+    row keeps its remaining end_date while access is withheld). DISABLED must
+    block too: replace_subscription/extend_subscription unconditionally flip
+    status back to ACTIVE, so letting a purchase through for a
+    DISABLED-but-not-expired row would silently reactivate access without the
+    user resolving whatever disabled it (e.g. rejoining the required channel).
+
+    Deliberately does NOT include TRIAL or LIMITED — a user who ran out of
+    traffic (LIMITED) or is on a trial (TRIAL) is exactly who should be able
+    to buy on the personalized landing; blocking them would kill the very
+    purchase this feature exists for. fulfill_purchase's race branch (see
+    guest_purchase_service.py) extends+resets these on purchase, same as a
+    normal renewal.
+
+    SQL EXISTS check, multi-tariff safe (a user may hold several subscription
+    rows). Subscription.is_active is a Python property, not a column, and
+    get_subscription_by_user_id() only returns the primary row — neither can
+    answer "does ANY subscription block a new purchase" on its own.
+    """
+    result = await db.execute(
+        select(func.count(Subscription.id)).where(
+            Subscription.user_id == user_id,
+            Subscription.status.in_(_BLOCKING_SUBSCRIPTION_STATUSES),
+            Subscription.end_date.isnot(None),
+            Subscription.end_date > datetime.now(UTC),
+        )
+    )
+    return (result.scalar() or 0) > 0
+
+
 async def get_subscription_by_user_id(db: AsyncSession, user_id: int) -> Subscription | None:
     """Get primary subscription for user.
 

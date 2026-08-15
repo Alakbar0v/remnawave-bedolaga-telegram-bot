@@ -14,9 +14,10 @@ from app.cabinet.ip_utils import get_client_ip
 from app.cabinet.utils.locale import DEFAULT_LOCALE, resolve_locale_text
 from app.config import settings
 from app.database.crud.landing import get_active_landing_by_slug, get_purchase_by_token
+from app.database.crud.subscription import user_has_active_subscription
 from app.database.crud.tariff import get_tariff_by_id
-from app.database.crud.user import get_user_by_email
-from app.database.models import GuestPurchase, GuestPurchaseStatus, LandingPage, Tariff
+from app.database.crud.user import get_user_by_email, get_user_by_telegram_id, lock_user_for_pricing
+from app.database.models import GuestPurchase, GuestPurchaseStatus, LandingPage, Tariff, User
 from app.services.guest_purchase_service import (
     GuestPurchaseError,
     _find_or_create_user,
@@ -90,6 +91,16 @@ class LandingDiscountInfo(BaseModel):
     badge_text: str | None = None  # resolved locale text
 
 
+class LandingPersonalization(BaseModel):
+    """Present only when the request carried ?tgid= — null means anonymous mode."""
+
+    status: str  # 'ok' | 'user_not_found' | 'has_active_subscription'
+    telegram_id: int | None = None
+    bot_link: str | None = None  # https://t.me/<bot>, set whenever the bot username is configured
+    can_purchase: bool = False  # convenience: status == 'ok'
+    active_subscription_ends_at: str | None = None  # ISO, only for 'has_active_subscription'
+
+
 class LandingConfigResponse(BaseModel):
     slug: str
     title: str
@@ -109,10 +120,16 @@ class LandingConfigResponse(BaseModel):
     analytics_view_goal: str | None = None
     analytics_click_enabled: bool = False
     analytics_click_goal: str | None = None
+    personalization: LandingPersonalization | None = None  # null for anonymous requests
 
 
 _EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 _TELEGRAM_RE = re.compile(r'^@?[a-zA-Z][a-zA-Z0-9_]{4,31}$')
+
+# Telegram user ids are int64-bounded; Telegram currently issues ids well below
+# 2**53, keeping them JS-number-safe for the frontend too.
+TELEGRAM_ID_MIN = 1
+TELEGRAM_ID_MAX = 2**53 - 1
 
 
 def _validate_contact(contact_type: str, contact_value: str) -> None:
@@ -126,8 +143,11 @@ def _validate_contact(contact_type: str, contact_value: str) -> None:
 class PurchaseRequest(BaseModel):
     tariff_id: int
     period_days: int
-    contact_type: str = Field(pattern=r'^(email|telegram)$')
-    contact_value: str = Field(min_length=1, max_length=255)
+    # Personalized (?tgid=) mode: identifies an existing bot user, replaces the
+    # contact form. Mutually exclusive with contact_type/contact_value.
+    telegram_id: int | None = Field(default=None, ge=TELEGRAM_ID_MIN, le=TELEGRAM_ID_MAX)
+    contact_type: str | None = Field(default=None, pattern=r'^(email|telegram)$')
+    contact_value: str | None = Field(default=None, min_length=1, max_length=255)
     payment_method: str = Field(min_length=1, max_length=50, pattern=r'^[a-z0-9_]+$')
     is_gift: bool = False
     gift_recipient_type: str | None = Field(default=None, pattern=r'^(email|telegram)$')
@@ -140,6 +160,14 @@ class PurchaseRequest(BaseModel):
 
     @model_validator(mode='after')
     def validate_contacts(self) -> 'PurchaseRequest':
+        if self.telegram_id is not None:
+            if self.is_gift:
+                raise ValueError('Gift purchases are not supported in personalized mode')
+            if self.contact_type or self.contact_value:
+                raise ValueError('contact_type/contact_value must be omitted when telegram_id is set')
+            return self
+        if not self.contact_type or not self.contact_value:
+            raise ValueError('contact_type and contact_value are required')
         _validate_contact(self.contact_type, self.contact_value)
         if self.is_gift:
             if not self.gift_recipient_type or not self.gift_recipient_value:
@@ -155,6 +183,8 @@ class PurchaseResponse(BaseModel):
 
 class PurchaseStatusResponse(BaseModel):
     status: str
+    mode: str = 'guest'  # 'guest' | 'telegram' — 'telegram' for personalized (?tgid=) purchases
+    requires_activation: bool = False  # always False in 'telegram' mode — no manual activate step
     subscription_url: str | None = None
     subscription_crypto_link: str | None = None
     is_gift: bool = False
@@ -222,11 +252,17 @@ _SUBSCRIPTION_URL_EXPIRY_HOURS = 24
 def _build_purchase_status_response(purchase: GuestPurchase) -> PurchaseStatusResponse:
     """Build a PurchaseStatusResponse from a GuestPurchase record."""
     tariff_name = purchase.tariff.name if purchase.tariff else None
+    is_personalized = purchase.personalized_telegram_id is not None
 
     within_ttl = False
     subscription_url = None
     subscription_crypto_link = None
-    if purchase.delivered_at and purchase.subscription_url and not purchase.is_gift:
+    # Personalized (?tgid=) purchases NEVER expose subscription_url here. tgid
+    # is unsigned (see PurchaseRequest.telegram_id) — anyone can pay for a
+    # victim's account, and handing the payer the victim's connection link
+    # would turn that into "buy access to any account". The buyer already has
+    # the bot and the app; they don't need the link on this page.
+    if purchase.delivered_at and purchase.subscription_url and not purchase.is_gift and not is_personalized:
         age = datetime.now(UTC) - purchase.delivered_at
         if age < timedelta(hours=_SUBSCRIPTION_URL_EXPIRY_HOURS):
             within_ttl = True
@@ -253,7 +289,7 @@ def _build_purchase_status_response(purchase: GuestPurchase) -> PurchaseStatusRe
     cabinet_password = None
     auto_login_token = None
     is_terminal = purchase.status in (GuestPurchaseStatus.DELIVERED.value, GuestPurchaseStatus.PENDING_ACTIVATION.value)
-    is_email_self_purchase = effective_contact_type == 'email' and not purchase.is_gift
+    is_email_self_purchase = effective_contact_type == 'email' and not purchase.is_gift and not is_personalized
 
     if is_terminal and is_email_self_purchase:
         cabinet_email = purchase.contact_value
@@ -276,6 +312,11 @@ def _build_purchase_status_response(purchase: GuestPurchase) -> PurchaseStatusRe
             bot_username = settings.get_bot_username()
             if bot_username:
                 bot_link = f'https://t.me/{bot_username}'
+    elif is_personalized:
+        # "Обновите подписку в приложении/боте" CTA on the success screen.
+        bot_username = settings.get_bot_username()
+        if bot_username:
+            bot_link = f'https://t.me/{bot_username}'
 
     # Transferable gift claim link. Derived from token + status only (NOT from
     # purchase.user, which stays NULL until someone claims). The buyer forwards
@@ -298,6 +339,8 @@ def _build_purchase_status_response(purchase: GuestPurchase) -> PurchaseStatusRe
 
     return PurchaseStatusResponse(
         status=purchase.status,
+        mode='telegram' if is_personalized else 'guest',
+        requires_activation=False,
         subscription_url=subscription_url,
         subscription_crypto_link=subscription_crypto_link,
         is_gift=purchase.is_gift,
@@ -365,10 +408,88 @@ def _get_active_discount(landing: LandingPage, lang: str) -> LandingDiscountInfo
     )
 
 
+async def _resolve_personalized_user(db: AsyncSession, telegram_id: int) -> User | None:
+    """Resolve an existing bot user for a personalized (?tgid=) landing request.
+
+    Must use get_user_by_telegram_id (not a bare select) — it eager-loads
+    user_promo_groups/promo_group, without which User.get_primary_promo_group()
+    silently returns None and the personal discount becomes 0.
+
+    Excludes DELETED and BLOCKED accounts. Without the BLOCKED check, an admin
+    ban (User.status = BLOCKED, set by admin_users.py:block_user — a User-level
+    flag, unrelated to Subscription.status) would do nothing to stop someone
+    who knows the banned user's telegram_id from completing a full purchase
+    for that account via the landing, bypassing the ban entirely.
+    """
+    from app.database.models import UserStatus
+
+    user = await get_user_by_telegram_id(db, telegram_id)
+    if user is not None and user.status in (UserStatus.DELETED.value, UserStatus.BLOCKED.value):
+        return None
+    return user
+
+
+async def _resolve_personalization(
+    db: AsyncSession, telegram_id: int
+) -> tuple[LandingPersonalization, User | None]:
+    """Resolve (?tgid=) into a LandingPersonalization + the user to price against.
+
+    The returned user is None whenever purchasing must be blocked (not found,
+    or already has an active subscription) — callers should not personalize
+    prices in that case.
+    """
+    bot_username = settings.get_bot_username()
+    bot_link = f'https://t.me/{bot_username}' if bot_username else None
+
+    user = await _resolve_personalized_user(db, telegram_id)
+    if user is None:
+        return (
+            LandingPersonalization(status='user_not_found', telegram_id=telegram_id, bot_link=bot_link),
+            None,
+        )
+
+    if await user_has_active_subscription(db, user.id):
+        from app.database.crud.subscription import get_subscription_by_user_id
+
+        active_ends_at = None
+        active_sub = await get_subscription_by_user_id(db, user.id)
+        if active_sub is not None and active_sub.end_date is not None:
+            active_ends_at = active_sub.end_date.isoformat()
+        return (
+            LandingPersonalization(
+                status='has_active_subscription',
+                telegram_id=telegram_id,
+                bot_link=bot_link,
+                active_subscription_ends_at=active_ends_at,
+            ),
+            None,
+        )
+
+    return (
+        LandingPersonalization(status='ok', telegram_id=telegram_id, bot_link=bot_link, can_purchase=True),
+        user,
+    )
+
+
 async def _load_landing_tariffs(
-    db: AsyncSession, landing: LandingPage, discount: LandingDiscountInfo | None = None
+    db: AsyncSession,
+    landing: LandingPage,
+    discount: LandingDiscountInfo | None = None,
+    *,
+    user: User | None = None,
 ) -> list[LandingTariff]:
-    """Load tariffs for a landing page, filtered by allowed IDs and periods."""
+    """Load tariffs for a landing page, filtered by allowed IDs and periods.
+
+    Args:
+        user: When set (personalized ?tgid= landing), prices are computed via
+            calculate_personal_tariff_price() — the same PricingEngine call the
+            bot uses — instead of the landing's own campaign discount. The two
+            are NOT stacked: campaign and promo-group/offer discounts are
+            independent mechanisms, and stacking them would both drift the
+            displayed price away from what the bot charges (defeating the
+            point of this mode) and remove any margin guardrail. When `user`
+            is set, `discount` is simply ignored.
+    """
     allowed_ids = landing.allowed_tariff_ids or []
     if not allowed_ids:
         return []
@@ -401,7 +522,16 @@ async def _load_landing_tariffs(
             original_price_label = None
             effective_discount = None
 
-            if discount:
+            if user is not None:
+                from app.services.guest_purchase_service import calculate_personal_tariff_price
+
+                price, original, effective_discount = await calculate_personal_tariff_price(tariff, days, user)
+                if effective_discount and effective_discount > 0:
+                    original_price_kopeks = original
+                    original_price_label = settings.format_price(original)
+                else:
+                    effective_discount = None
+            elif discount:
                 # Per-tariff override takes priority (read from landing model, not response DTO)
                 overrides = landing.discount_overrides or {}
                 tariff_override = overrides.get(str(tariff.id))
@@ -622,11 +752,16 @@ async def get_landing_config(
     raw_request: Request,
     slug: str = Path(max_length=100),
     lang: str = Query(DEFAULT_LOCALE, max_length=5, description='Locale: ru, en, zh, fa'),
+    tgid: int | None = Query(
+        None, ge=TELEGRAM_ID_MIN, le=TELEGRAM_ID_MAX, description='Telegram id for personalized pricing'
+    ),
     db: AsyncSession = Depends(get_cabinet_db),
 ):
     """Get public landing page configuration with tariffs and payment methods.
 
     No authentication required. Pass ``?lang=en`` to get localized text.
+    Pass ``?tgid=<telegram_id>`` to get personalized (bot-identical) pricing
+    for an existing bot user instead of the anonymous campaign discount.
     """
     client_ip = get_client_ip(raw_request)
     if await RateLimitCache.is_ip_rate_limited(client_ip, 'landing_config', limit=60, window=60, fail_closed=True):
@@ -639,8 +774,25 @@ async def get_landing_config(
             detail='Landing page not found',
         )
 
+    # tgid discloses "is this a registered user" and "do they have an active
+    # subscription" — a second, tighter gate on top of the general one above.
+    personalization: LandingPersonalization | None = None
+    personalized_user: User | None = None
+    if tgid is not None:
+        if await RateLimitCache.is_ip_rate_limited(client_ip, 'landing_config_tg', limit=10, window=60, fail_closed=True):
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail='Too many requests')
+        if await RateLimitCache.is_rate_limited(tgid, 'landing_config_tg', limit=20, window=60, fail_closed=True):
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail='Too many requests')
+        personalization, personalized_user = await _resolve_personalization(db, tgid)
+
     discount = _get_active_discount(landing, lang)
-    tariffs = await _load_landing_tariffs(db, landing, discount)
+    if personalization is not None and personalization.status != 'ok':
+        # Blocked (unknown tgid, or already has an active subscription): never
+        # fall back to anonymous/campaign pricing — the SPA hides the whole
+        # purchase grid for these statuses, so there's nothing to price.
+        tariffs: list[LandingTariff] = []
+    else:
+        tariffs = await _load_landing_tariffs(db, landing, discount, user=personalized_user)
 
     # Build payment methods from landing config
     raw_methods = landing.payment_methods or []
@@ -708,6 +860,7 @@ async def get_landing_config(
         analytics_view_goal=landing.analytics_view_goal,
         analytics_click_enabled=landing.analytics_click_enabled,
         analytics_click_goal=landing.analytics_click_goal,
+        personalization=personalization,
     )
 
 
@@ -741,6 +894,34 @@ async def create_landing_purchase(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail='Gift purchases are not enabled for this landing page',
         )
+
+    # Personalized (?tgid=) purchase: resolve the buyer and re-check the
+    # active-subscription block server-side. This is a DELIBERATE duplicate of
+    # the page-load check in get_landing_config — that one is UX (renders the
+    # "you already have a subscription" screen), this one is the actual
+    # enforcement point, since the page-load result can be stale by the time
+    # the user clicks pay, and this endpoint is directly callable regardless.
+    personalized_user: User | None = None
+    if body.telegram_id is not None:
+        if await RateLimitCache.is_rate_limited(
+            body.telegram_id, 'landing_purchase_tg', limit=5, window=60, fail_closed=True
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail='Too many purchase attempts, please try again later',
+            )
+        personalized_user = await _resolve_personalized_user(db, body.telegram_id)
+        if personalized_user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Telegram user not found')
+        if await user_has_active_subscription(db, personalized_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail='You already have an active subscription',
+            )
+        # Locks the user row + eager-loads what PricingEngine needs — prevents
+        # a concurrent request from reading the same one-shot promo offer
+        # twice (same pattern as the bot: tariff_purchase.py).
+        personalized_user = await lock_user_for_pricing(db, personalized_user.id)
 
     # Validate payment method is available on this landing.
     # The frontend may send a suffixed method ID (e.g. "platega_2", "yookassa_sbp")
@@ -776,9 +957,14 @@ async def create_landing_purchase(
             detail='Payment method is not available on this landing page',
         )
 
-    # Validate tariff + period + calculate price
+    # Validate tariff + period + calculate price. In personalized mode this
+    # uses the same PricingEngine call the bot uses (see
+    # calculate_personal_tariff_price), so the charged amount matches the
+    # price shown on the page and passed the webhook amount-equality check.
     try:
-        tariff, amount_kopeks = await validate_and_calculate(db, landing, body.tariff_id, body.period_days)
+        tariff, amount_kopeks = await validate_and_calculate(
+            db, landing, body.tariff_id, body.period_days, user=personalized_user
+        )
     except GuestPurchaseError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
@@ -804,14 +990,27 @@ async def create_landing_purchase(
         )
 
     # Create purchase record (no commit yet — wait for payment creation)
+    if personalized_user is not None:
+        # NOT NULL columns — synthesize from the numeric id, NOT user.username.
+        # Many bot users have no @username at all, and using the numeric id
+        # makes a missed branch fail loud: if fulfill_purchase's
+        # personalized_telegram_id check were ever skipped, _find_or_create_user
+        # would reject '123456789' as an invalid username (GuestPurchaseError)
+        # rather than silently binding the purchase to the wrong account.
+        contact_type = 'telegram'
+        contact_value = str(body.telegram_id)
+    else:
+        contact_type = body.contact_type
+        contact_value = body.contact_value
+
     purchase = await create_purchase(
         db,
         landing=landing,
         tariff=tariff,
         period_days=body.period_days,
         amount_kopeks=amount_kopeks,
-        contact_type=body.contact_type,
-        contact_value=body.contact_value,
+        contact_type=contact_type,
+        contact_value=contact_value,
         payment_method=body.payment_method,
         is_gift=body.is_gift,
         gift_recipient_type=body.gift_recipient_type,
@@ -819,6 +1018,8 @@ async def create_landing_purchase(
         gift_message=body.gift_message,
         subid=body.subid,
         referrer=body.referrer,
+        personalized_telegram_id=body.telegram_id,
+        user_id=personalized_user.id if personalized_user is not None else None,
         commit=False,
     )
 

@@ -4493,6 +4493,7 @@ class GuestPurchase(Base):
         Index('ix_guest_purchases_user_gift_status', 'user_id', 'is_gift', 'status'),
         Index('ix_guest_purchases_status_paid_at', 'status', 'paid_at'),
         Index('ix_guest_purchases_buyer_user_id', 'buyer_user_id'),
+        Index('ix_guest_purchases_personalized_tgid', 'personalized_telegram_id'),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -4529,6 +4530,11 @@ class GuestPurchase(Base):
     yandex_cid = Column(String(128), nullable=True)
     subid = Column(String(255), nullable=True)
     referrer = Column(String(500), nullable=True)
+    # Personalized landing purchase: Telegram id from ?tgid=. NULL for the
+    # anonymous contact-form flow. Set at creation; drives fulfillment
+    # branching in fulfill_purchase (also reached from webhooks and the
+    # background retry loop, both without request context).
+    personalized_telegram_id = Column(BigInteger, nullable=True)
 
     landing = relationship('LandingPage', back_populates='guest_purchases', lazy='selectin')
     tariff = relationship('Tariff', lazy='selectin')

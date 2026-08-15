@@ -16,6 +16,7 @@ from app.cabinet.auth.password_utils import hash_password
 from app.config import settings
 from app.database.crud.landing import create_guest_purchase
 from app.database.crud.subscription import (
+    ALIVE_SUBSCRIPTION_STATUSES,
     create_paid_subscription,
     extend_subscription,
     get_subscription_by_user_id,
@@ -23,12 +24,18 @@ from app.database.crud.subscription import (
 )
 from app.database.crud.tariff import get_tariff_by_id
 from app.database.crud.transaction import create_transaction
-from app.database.crud.user import _get_or_create_default_promo_group, create_unique_referral_code
+from app.database.crud.user import (
+    _get_or_create_default_promo_group,
+    create_unique_referral_code,
+    get_user_by_id,
+    get_user_by_telegram_id,
+)
 from app.database.models import (
     GuestPurchase,
     GuestPurchaseStatus,
     LandingPage,
     PaymentMethod,
+    SubscriptionStatus,
     Tariff,
     Transaction,
     TransactionType,
@@ -85,13 +92,47 @@ class GuestPurchaseError(Exception):
         super().__init__(message)
 
 
+async def calculate_personal_tariff_price(
+    tariff: Tariff,
+    period_days: int,
+    user: User,
+) -> tuple[int, int, int]:
+    """Return (final_kopeks, original_kopeks, effective_discount_pct) for `user`.
+
+    This is the personalized (?tgid=) landing pricing path — it reuses the same
+    PricingEngine call the bot uses for a tariff purchase, so the price shown
+    on the landing is identical to what the user would pay in the bot. The
+    landing's own campaign discount (LandingPage.discount_percent) is
+    deliberately NOT applied and NOT stacked here — see the docstring on
+    _load_landing_tariffs for why.
+    """
+    from app.services.pricing_engine import pricing_engine
+
+    pricing = await pricing_engine.calculate_tariff_purchase_price(tariff, period_days, user=user)
+    original = pricing.original_total
+    final = pricing.final_total
+    if original > 0:
+        # Every payment provider rejects a 0 amount, and the webhook's amount
+        # equality check (payment/common.py) would then fail a 100%-off order.
+        final = max(1, final)
+    pct = round((original - final) * 100 / original) if original > 0 else 0
+    return final, original, pct
+
+
 async def validate_and_calculate(
     db: AsyncSession,
     landing: LandingPage,
     tariff_id: int,
     period_days: int,
+    *,
+    user: User | None = None,
 ) -> tuple[Tariff, int]:
     """Validate tariff/period against landing config and return (tariff, price_kopeks).
+
+    Args:
+        user: When set (personalized ?tgid= landing purchase), the price is
+            computed via calculate_personal_tariff_price() instead of the
+            landing's own campaign discount — see that function's docstring.
 
     Raises:
         GuestPurchaseError: If tariff or period is not allowed or price is unavailable.
@@ -126,6 +167,11 @@ async def validate_and_calculate(
     if price_kopeks is None:
         raise GuestPurchaseError('Price is not configured for this period')
 
+    if user is not None:
+        # Personalized (?tgid=) mode: bot-identical pricing, no campaign discount.
+        price_kopeks, _original, _pct = await calculate_personal_tariff_price(tariff, period_days, user)
+        return tariff, price_kopeks
+
     # Apply landing discount if active
     if landing.discount_percent and landing.discount_starts_at and landing.discount_ends_at:
         now = datetime.now(UTC)
@@ -157,9 +203,20 @@ async def create_purchase(
     subid: str | None = None,
     referrer: str | None = None,
     buyer_user_id: int | None = None,
+    personalized_telegram_id: int | None = None,
+    user_id: int | None = None,
     commit: bool = True,
 ) -> GuestPurchase:
-    """Create a guest purchase record."""
+    """Create a guest purchase record.
+
+    Args:
+        personalized_telegram_id: Set for a personalized (?tgid=) landing
+            purchase — durably marks the mode and is fulfill_purchase's
+            fallback resolver if `user_id` is ever unavailable.
+        user_id: Set together with personalized_telegram_id, since that flow
+            already knows the buyer's account at creation time (unlike the
+            anonymous flow, where user_id is only filled in at fulfillment).
+    """
     purchase = await create_guest_purchase(
         db,
         commit=commit,
@@ -178,6 +235,8 @@ async def create_purchase(
         gift_message=gift_message,
         source=source,
         buyer_user_id=buyer_user_id,
+        personalized_telegram_id=personalized_telegram_id,
+        user_id=user_id,
         status=GuestPurchaseStatus.PENDING.value,
     )
 
@@ -345,19 +404,44 @@ async def fulfill_purchase(
         )
         return purchase
 
-    try:
-        # Determine recipient contact info
-        recipient_type, recipient_value = _get_recipient_contact(purchase)
+    is_personalized = purchase.personalized_telegram_id is not None
 
-        # Find or create user for the recipient (no commit — stays within our transaction)
-        user, is_new_account = await _find_or_create_user(
-            db,
-            recipient_type,
-            recipient_value,
-            purchase=purchase,
-            pre_resolved_telegram_id=pre_resolved_telegram_id,
-            tariff_id=purchase.tariff_id,
-        )
+    try:
+        if is_personalized:
+            # Personalized (?tgid=) landing purchase: the buyer's account was
+            # already known and locked at purchase creation — no contact-form
+            # matching, no new-account creation. purchase.user_id is
+            # authoritative (set in the same transaction as the charge);
+            # personalized_telegram_id is the fallback if that row is ever gone.
+            recipient_type = 'telegram'
+            user = None
+            if purchase.user_id:
+                user = await get_user_by_id(db, purchase.user_id)
+            if user is None:
+                user = await get_user_by_telegram_id(db, purchase.personalized_telegram_id)
+            if user is None:
+                logger.error(
+                    'Personalized purchase user vanished before fulfillment',
+                    purchase_id=purchase.id,
+                    telegram_id=purchase.personalized_telegram_id,
+                )
+                purchase.status = GuestPurchaseStatus.FAILED.value
+                await db.commit()
+                return purchase
+            is_new_account = False
+        else:
+            # Determine recipient contact info
+            recipient_type, recipient_value = _get_recipient_contact(purchase)
+
+            # Find or create user for the recipient (no commit — stays within our transaction)
+            user, is_new_account = await _find_or_create_user(
+                db,
+                recipient_type,
+                recipient_value,
+                purchase=purchase,
+                pre_resolved_telegram_id=pre_resolved_telegram_id,
+                tariff_id=purchase.tariff_id,
+            )
 
         # Load tariff early — needed for both PENDING_ACTIVATION and DELIVERED paths
         tariff = await get_tariff_by_id(db, purchase.tariff_id)
@@ -387,7 +471,14 @@ async def fulfill_purchase(
             return purchase
 
         # Check if user already has a subscription
-        if settings.is_multi_tariff_enabled():
+        if is_personalized:
+            # Personalized mode blocks ANY active subscription at page-load and
+            # POST time (see landing.py). Here we only need the primary row to
+            # decide extend-vs-replace-vs-create for the rare race where the
+            # user acquired a subscription between payment and this webhook —
+            # never a PENDING_ACTIVATION hold (see below).
+            existing_subscription = await get_subscription_by_user_id(db, user.id)
+        elif settings.is_multi_tariff_enabled():
             from app.database.crud.subscription import get_subscription_by_user_and_tariff
 
             # In multi-tariff mode, only block if user already has THIS SPECIFIC tariff active.
@@ -395,7 +486,7 @@ async def fulfill_purchase(
             existing_subscription = await get_subscription_by_user_and_tariff(db, user.id, tariff.id)
         else:
             existing_subscription = await get_subscription_by_user_id(db, user.id)
-        if existing_subscription is not None and (existing_subscription.is_active or purchase.is_gift):
+        if not is_personalized and existing_subscription is not None and (existing_subscription.is_active or purchase.is_gift):
             # Active subscription or gift with any existing subscription — hold for manual activation
             purchase.status = GuestPurchaseStatus.PENDING_ACTIVATION.value
             purchase.user_id = user.id
@@ -441,7 +532,46 @@ async def fulfill_purchase(
             all_servers, _ = await get_all_server_squads(db, available_only=True)
             squads = [s.squad_uuid for s in all_servers if s.squad_uuid]
 
-        if existing_subscription is not None:
+        _existing_has_time = (
+            existing_subscription is not None
+            and existing_subscription.status in ALIVE_SUBSCRIPTION_STATUSES
+            and existing_subscription.end_date is not None
+            and _aware(existing_subscription.end_date) > datetime.now(UTC)
+        )
+        if is_personalized and existing_subscription is not None and _existing_has_time:
+            # Two cases land here:
+            #  - TRIAL / LIMITED (out of traffic but time-alive): the EXPECTED,
+            #    common path — user_has_active_subscription() deliberately does
+            #    not block these, since "ran out of traffic/on a trial" is
+            #    exactly who this feature is for. extend_subscription resets
+            #    traffic and converts trial→paid, same as a normal renewal.
+            #  - ACTIVE: a genuine race — the user acquired/renewed a
+            #    subscription between payment and this webhook (e.g. bought in
+            #    the bot in the meantime). Worth a warning since it's normally
+            #    blocked upstream and this is the narrow window it can slip
+            #    through in.
+            # Either way: money is already taken and this mode has no
+            # PENDING_ACTIVATION hold (see above), so extend rather than
+            # replace — preserves remaining days, no lost time, no manual step.
+            if existing_subscription.status == SubscriptionStatus.ACTIVE.value:
+                logger.warning(
+                    'Personalized purchase extended an already-active subscription (race)',
+                    purchase_id=purchase.id,
+                    user_id=user.id,
+                    existing_tariff_id=existing_subscription.tariff_id,
+                    purchased_tariff_id=tariff.id,
+                )
+            subscription = await extend_subscription(
+                db,
+                existing_subscription,
+                purchase.period_days,
+                tariff_id=tariff.id,
+                traffic_limit_gb=tariff.traffic_limit_gb,
+                device_limit=tariff.device_limit,
+                connected_squads=squads,
+                commit=False,
+            )
+        elif existing_subscription is not None:
             # Expired/inactive subscription — replace it
             existing_subscription.tariff_id = tariff.id
             subscription = await replace_subscription(
@@ -536,6 +666,25 @@ async def fulfill_purchase(
                 # (промогруппа/конкурс). Если её запись упала (например, дубль
                 # external_id при ретрае платёжки), откатываем ТОЛЬКО её, чтобы не
                 # «отравить» сессию и не сорвать дальнейшие коммиты (CID, постбэки).
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+
+        # Personalized purchases price in the user's active promo offer (same
+        # PricingEngine call the bot uses). There is no subtract_user_balance()
+        # step on the landing to consume it, so do it explicitly — otherwise a
+        # one-shot offer could be reused on every future personalized purchase.
+        if is_personalized:
+            try:
+                from app.utils.promo_offer import consume_user_promo_offer
+
+                if await consume_user_promo_offer(db, user.id):
+                    await db.commit()
+            except Exception:
+                logger.exception(
+                    'Failed to consume promo offer for personalized purchase', purchase_id=purchase.id
+                )
                 try:
                     await db.rollback()
                 except Exception:
@@ -987,6 +1136,63 @@ async def _send_telegram_gift_notification(
         )
 
 
+async def _send_telegram_purchase_notification(
+    purchase: GuestPurchase,
+    *,
+    tariff_name: str = '',
+) -> None:
+    """Best-effort success DM for a personalized (?tgid=) landing purchase.
+
+    Unlike the anonymous telegram-contact case (no notification, success page
+    only — the buyer has no chat_id we trust), here purchase.personalized_telegram_id
+    IS the buyer's own verified chat, so we can message them directly.
+    """
+    if not settings.BOT_TOKEN or not purchase.personalized_telegram_id:
+        return
+
+    try:
+        import html as html_mod
+
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+        from app.bot_factory import create_bot
+
+        safe_tariff = html_mod.escape(tariff_name) if tariff_name else ''
+        period_text = f'{purchase.period_days} дн.' if purchase.period_days else ''
+        tariff_text = f'«{safe_tariff}» ' if safe_tariff else ''
+
+        text = (
+            '✅ <b>Оплата прошла успешно!</b>\n'
+            f'Подписка {tariff_text}на {period_text} активирована.\n\n'
+            'Обновите подписку в вашем VPN-приложении — новые данные подтянутся автоматически.'
+        )
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text='📱 Моя подписка', callback_data='menu_subscription')]
+            ]
+        )
+
+        async with create_bot() as bot:
+            await bot.send_message(
+                chat_id=purchase.personalized_telegram_id,
+                text=text,
+                reply_markup=keyboard,
+            )
+
+        logger.info(
+            'Telegram personalized purchase notification sent',
+            purchase_id=purchase.id,
+            recipient_telegram_id=purchase.personalized_telegram_id,
+        )
+    except Exception:
+        logger.warning(
+            'Failed to send Telegram personalized purchase notification',
+            purchase_id=purchase.id,
+            recipient_telegram_id=purchase.personalized_telegram_id,
+            exc_info=True,
+        )
+
+
 async def send_guest_notification(
     purchase: GuestPurchase,
     *,
@@ -1021,6 +1227,8 @@ async def send_guest_notification(
             await _send_telegram_gift_notification(
                 purchase, is_pending_activation=is_pending_activation, tariff_name=tariff_name
             )
+        elif purchase.personalized_telegram_id:
+            await _send_telegram_purchase_notification(purchase, tariff_name=tariff_name)
         return
 
     recipient_email = recipient_value
@@ -1230,6 +1438,12 @@ async def activate_purchase(db: AsyncSession, purchase_token: str, *, skip_notif
 
     if purchase is None:
         raise GuestPurchaseError('Purchase not found', status_code=404)
+
+    # Defense in depth: fulfill_purchase never puts a personalized (?tgid=)
+    # purchase into PENDING_ACTIVATION, so this should be unreachable via the
+    # status check below — but reject explicitly rather than relying on that.
+    if purchase.personalized_telegram_id:
+        raise GuestPurchaseError('This purchase does not require activation', status_code=400)
 
     # Idempotent: already delivered
     if purchase.status == GuestPurchaseStatus.DELIVERED.value:
