@@ -4953,6 +4953,7 @@ class GuestPurchase(Base):
         Index('ix_guest_purchases_status_paid_at', 'status', 'paid_at'),
         Index('ix_guest_purchases_buyer_user_id', 'buyer_user_id'),
         Index('ux_guest_purchases_idempotency_key', 'idempotency_key', unique=True),
+        Index('ix_guest_purchases_personalized_tgid', 'personalized_telegram_id'),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -4998,6 +4999,11 @@ class GuestPurchase(Base):
     # Идемпотентность покупки (checkout id / idempotency key). Уникальный
     # индекс ux_guest_purchases_idempotency_key предотвращает повторные списания.
     idempotency_key = Column(String(64), nullable=True)
+    # Personalized landing purchase: Telegram id from ?tgid=. NULL for the
+    # anonymous contact-form flow. Set at creation; drives fulfillment
+    # branching in fulfill_purchase (also reached from webhooks and the
+    # background retry loop, both without request context).
+    personalized_telegram_id = Column(BigInteger, nullable=True)
 
     landing = relationship('LandingPage', back_populates='guest_purchases', lazy='selectin')
     tariff = relationship('Tariff', lazy='selectin')
