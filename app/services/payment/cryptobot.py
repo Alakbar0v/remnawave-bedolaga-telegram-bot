@@ -31,6 +31,25 @@ from app.utils.user_utils import format_referrer_info
 renewal_service = SubscriptionRenewalService()
 
 
+def _parse_cryptobot_trial_payload(payload: str | None) -> int | None:
+    """Извлекает subscription_id из payload вида ``trial_{subscription_id}_{user_id}``.
+
+    Формат задаётся в app.handlers.subscription.purchase.handle_trial_payment_method
+    (та же схема ``trial_{id}``, что и у Stars — см. _handle_trial_payment в
+    app/handlers/stars_payments.py). user_id из payload не используется — он
+    берётся из самой записи платежа (более надёжный источник).
+    """
+    if not payload or not payload.startswith('trial_'):
+        return None
+    parts = payload.split('_')
+    if len(parts) < 2:
+        return None
+    try:
+        return int(parts[1])
+    except ValueError:
+        return None
+
+
 @dataclass(slots=True)
 class _AdminNotificationContext:
     user_id: int
@@ -245,6 +264,17 @@ class CryptoBotPaymentMixin:
                     return True
 
             if not updated_payment.transaction_id:
+                # Paid-trial activation: the payload set by handle_trial_payment_method
+                # (app/handlers/subscription/purchase.py) is "trial_{subscription_id}_{user_id}",
+                # same scheme as Stars' _handle_trial_payment. Money pays for the
+                # trial subscription, not a balance top-up — mirrors
+                # PlategaPaymentMixin._finalize_platega_trial_payment.
+                trial_subscription_id = _parse_cryptobot_trial_payload(crypto_payload_str)
+                if trial_subscription_id is not None:
+                    return await self._finalize_cryptobot_trial_payment(
+                        db, updated_payment, trial_subscription_id, cryptobot_crud
+                    )
+
                 amount_usd = updated_payment.amount_float
 
                 try:
@@ -407,6 +437,145 @@ class CryptoBotPaymentMixin:
         except Exception as error:
             logger.error('Ошибка обработки CryptoBot webhook', error=error, exc_info=True)
             return False
+
+    async def _finalize_cryptobot_trial_payment(
+        self,
+        db: AsyncSession,
+        payment: Any,
+        subscription_id: int,
+        cryptobot_crud: Any,
+    ) -> bool:
+        """Активирует pending триальную подписку по успешному CryptoBot платежу.
+
+        Платёж за платный триал не пополняет баланс — деньги сразу идут в
+        оплату подписки, той же логикой, что и is_trial_payment у YooKassa /
+        PlategaPaymentMixin._finalize_platega_trial_payment.
+        """
+        payment_service_module = import_module('app.services.payment_service')
+
+        try:
+            amount_rubles = await currency_converter.usd_to_rub(payment.amount_float)
+        except Exception as error:
+            logger.warning(
+                'Ошибка конвертации валют для триального платежа CryptoBot, используем курс 1:1',
+                invoice_id=payment.invoice_id,
+                error=error,
+            )
+            amount_rubles = payment.amount_float
+        amount_kopeks = int(math.ceil(amount_rubles) * 100)
+
+        if amount_kopeks <= 0:
+            logger.error(
+                'Некорректная сумма после конвертации для триального платежа CryptoBot',
+                amount_kopeks=amount_kopeks,
+                invoice_id=payment.invoice_id,
+            )
+            return False
+
+        transaction = await payment_service_module.create_transaction(
+            db,
+            user_id=payment.user_id,
+            type=TransactionType.SUBSCRIPTION_PAYMENT,
+            amount_kopeks=amount_kopeks,
+            description=f'Оплата пробной подписки через CryptoBot ({payment.amount} {payment.asset})',
+            payment_method=PaymentMethod.CRYPTOBOT,
+            external_id=payment.invoice_id,
+            is_completed=True,
+            created_at=getattr(payment, 'created_at', None),
+            commit=False,
+        )
+
+        await cryptobot_crud.link_cryptobot_payment_to_transaction(db, payment.invoice_id, transaction.id)
+
+        user = await payment_service_module.get_user_by_id(db, payment.user_id)
+        if not user:
+            logger.error('Пользователь не найден для триального платежа CryptoBot', user_id=payment.user_id)
+            await db.commit()
+            return False
+
+        try:
+            from app.database.crud.subscription import activate_pending_trial_subscription
+
+            subscription = await activate_pending_trial_subscription(
+                db=db,
+                subscription_id=subscription_id,
+                user_id=user.id,
+            )
+        except Exception as error:
+            logger.error('Ошибка активации триальной подписки для платежа CryptoBot', error=error, exc_info=True)
+            subscription = None
+
+        # activate_pending_trial_subscription commits internally on success; its
+        # "no pending subscription found" path does not, so commit here too to
+        # make sure the transaction/link created above are persisted either way.
+        await db.commit()
+
+        if not subscription:
+            logger.error(
+                'Не удалось активировать триал по платежу CryptoBot',
+                subscription_id=subscription_id,
+                user_id=user.id,
+            )
+            return False
+
+        logger.info(
+            'Триальная подписка активирована по платежу CryptoBot',
+            subscription_id=subscription.id,
+            user_id=user.id,
+        )
+
+        from app.services.subscription_service import SubscriptionService
+
+        subscription_service = SubscriptionService()
+        try:
+            await subscription_service.create_remnawave_user(db, subscription)
+        except Exception as rw_error:
+            logger.error('Ошибка создания RemnaWave для триала (CryptoBot)', rw_error=rw_error)
+            from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+            remnawave_retry_queue.enqueue(
+                subscription_id=subscription.id,
+                user_id=subscription.user_id,
+                action='create',
+            )
+
+        if getattr(self, 'bot', None):
+            try:
+                from app.services.admin_notification_service import AdminNotificationService
+
+                admin_notification_service = AdminNotificationService(self.bot)
+                await admin_notification_service.send_trial_activation_notification(
+                    db,
+                    user,
+                    subscription,
+                    charged_amount_kopeks=amount_kopeks,
+                )
+            except Exception as admin_error:
+                logger.warning('Ошибка уведомления админов о триале (CryptoBot)', admin_error=admin_error)
+
+        if getattr(self, 'bot', None) and user.telegram_id and settings.is_notifications_enabled():
+            try:
+                await self.bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=(
+                        '🎉 <b>Пробная подписка активирована!</b>\n\n'
+                        f'💳 Оплачено: {settings.format_price(amount_kopeks)}\n'
+                        f'📅 Период: {settings.TRIAL_DURATION_DAYS} дней\n'
+                        f'📱 Устройств: {subscription.device_limit}\n\n'
+                        'Используйте меню для подключения к VPN.'
+                    ),
+                    parse_mode='HTML',
+                )
+            except Exception as notify_error:
+                logger.warning('Ошибка уведомления пользователя о триале (CryptoBot)', notify_error=notify_error)
+
+        logger.info(
+            '✅ Обработан триальный CryptoBot платеж для пользователя',
+            invoice_id=payment.invoice_id,
+            user_id=payment.user_id,
+        )
+
+        return True
 
     async def _process_subscription_renewal_payment(
         self,
