@@ -1318,7 +1318,7 @@ def _get_subscription_status(user: User, texts, is_daily_tariff: bool = False) -
         if days_left > 1 and end_date_text:
             return texts.t(
                 'SUB_STATUS_TRIAL_ACTIVE',
-                '🎁 Тестовая подписка\n📅 до {end_date} ({days} дн.)',
+                '🎁 Пробная подписка\n📅 до {end_date} ({days} дн.)',
             ).format(
                 end_date=end_date_text,
                 days=days_left,
@@ -1326,11 +1326,11 @@ def _get_subscription_status(user: User, texts, is_daily_tariff: bool = False) -
         if days_left == 1:
             return texts.t(
                 'SUB_STATUS_TRIAL_TOMORROW',
-                '🎁 Тестовая подписка\n⚠️ истекает завтра!',
+                '🎁 Пробная подписка\n⚠️ истекает завтра!',
             )
         return texts.t(
             'SUB_STATUS_TRIAL_TODAY',
-            '🎁 Тестовая подписка\n⚠️ истекает сегодня!',
+            '🎁 Пробная подписка\n⚠️ истекает сегодня!',
         )
 
     if actual_status == 'active':

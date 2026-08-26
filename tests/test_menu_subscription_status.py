@@ -26,5 +26,5 @@ def test_get_subscription_status_marks_trial_as_trial():
 
     status_text = _get_subscription_status(user, texts)
 
-    assert 'Тестовая подписка' in status_text
+    assert 'Пробная подписка' in status_text
     assert 'Активна' not in status_text

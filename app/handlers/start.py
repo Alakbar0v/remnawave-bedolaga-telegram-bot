@@ -537,7 +537,7 @@ async def _activate_pending_trial(
     try:
         texts = get_texts(user.language)
         confirmation = await answer_func(
-            texts.t('MAIN_MENU_RICH_TRIAL_ACTIVATED', '🎉 <b>Тестовая подписка активирована!</b>'),
+            texts.t('MAIN_MENU_RICH_TRIAL_ACTIVATED', '🎉 <b>Пробная подписка активирована!</b>'),
             parse_mode=ParseMode.HTML,
         )
         # Подтверждение эфемерное: новая подписка и так видна в меню ниже.
