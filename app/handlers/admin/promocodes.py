@@ -444,7 +444,7 @@ async def select_promocode_type(callback: types.CallbackQuery, db_user: User, st
     type_names = {
         'balance': '💰 Пополнение баланса',
         'days': '📅 Дни подписки',
-        'trial': '🎁 Тестовая подписка',
+        'trial': '🎁 Пробная подписка',
         'group': '🏷️ Промогруппа',
         'discount': '💸 Одноразовая скидка',
         'combo': '💰📅 Баланс + дни подписки',
@@ -830,7 +830,7 @@ async def process_promocode_expiry(message: types.Message, db_user: User, state:
         type_names = {
             'balance': 'Пополнение баланса',
             'days': 'Дни подписки',
-            'trial': 'Тестовая подписка',
+            'trial': 'Пробная подписка',
             'group': 'Промогруппа',
             'combo': 'Баланс + дни подписки',
         }
