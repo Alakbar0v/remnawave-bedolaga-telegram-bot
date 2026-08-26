@@ -1,8 +1,14 @@
 """add personalized_telegram_id to guest_purchases
 
-Revision ID: custom_0003
+Revision ID: 0107
 Revises: custom_0002
 Create Date: 2026-08-16
+
+Kept as '0107' (not renamed into the custom_* branch like its two
+predecessors) because deployed instances already have this exact id
+recorded as their current alembic_version — renaming it breaks their
+upgrade path. custom_0001/custom_0002 were safe to rename since no
+deployed DB's *current* version ever stops there mid-chain.
 """
 
 from typing import Sequence, Union
@@ -11,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision: str = 'custom_0003'
+revision: str = '0107'
 down_revision: Union[str, None] = 'custom_0002'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
