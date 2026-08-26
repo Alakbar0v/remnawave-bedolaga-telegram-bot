@@ -114,14 +114,36 @@ def get_available_payment_methods() -> list[dict[str, str]]:
     if settings.is_platega_enabled() and settings.get_platega_active_methods():
         platega_name = settings.get_platega_display_name()
         if settings.PLATEGA_INLINE_METHODS:
+            # СБП/Карта (RUB)/Крипта описываются самим методом, без бренда
+            # провайдера, и используют те же custom-emoji иконки, что и на
+            # кнопках (см. get_payment_methods_keyboard / Lava card+sbp).
+            # Остальные (напр. код 12, международные карты) по-прежнему
+            # подписаны через провайдера с обычным unicode-эмодзи.
+            from app.keyboards.inline import (
+                CARD_ICON_CUSTOM_EMOJI_ID,
+                CRYPTO_ICON_CUSTOM_EMOJI_ID,
+                SBP_ICON_CUSTOM_EMOJI_ID,
+            )
+
+            platega_short_description = {
+                2: 'оплата по QR-коду',
+                11: 'оплата картой РФ',
+                13: 'оплата криптовалютой',
+            }
+            platega_custom_icon = {
+                2: f'<tg-emoji emoji-id="{SBP_ICON_CUSTOM_EMOJI_ID}">🏦</tg-emoji>',
+                11: f'<tg-emoji emoji-id="{CARD_ICON_CUSTOM_EMOJI_ID}">💳</tg-emoji>',
+                13: f'<tg-emoji emoji-id="{CRYPTO_ICON_CUSTOM_EMOJI_ID}">🪙</tg-emoji>',
+            }
             for method_code in settings.get_platega_active_methods():
                 info = settings.get_platega_method_definitions().get(method_code, {})
+                default_icon = info.get('title', '💳').split(' ', 1)[0] if info.get('title') else '💳'
                 methods.append(
                     {
                         'id': f'platega_m{method_code}',
                         'name': info.get('name', f'Метод {method_code}'),
-                        'icon': info.get('title', '💳').split(' ', 1)[0] if info.get('title') else '💳',
-                        'description': f'через {platega_name}',
+                        'icon': platega_custom_icon.get(method_code, default_icon),
+                        'description': platega_short_description.get(method_code, f'через {platega_name}'),
                         'callback': f'topup_platega_m{method_code}',
                     }
                 )
