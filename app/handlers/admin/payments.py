@@ -333,7 +333,7 @@ def _build_detail_keyboard(
 def _format_user_line(user: User) -> str:
     username = format_username(user.username, user.telegram_id, user.full_name)
     user_id_display = user.telegram_id or user.email or f'#{user.id}'
-    return f'👤 {html.escape(username)} (<code>{user_id_display}</code>)'
+    return f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {html.escape(username)} (<code>{user_id_display}</code>)'
 
 
 def _build_record_lines(

@@ -779,7 +779,7 @@ class TrafficMonitoringServiceV2:
                     db_user = await get_user_by_remnawave_id(db, violation.user_id)
                     if db_user:
                         user_id_display = db_user.telegram_id or db_user.email or f'#{db_user.id}'
-                        user_info = f'👤 <b>{html.escape(db_user.full_name or "Без имени")}</b>\n🆔 ID: <code>{user_id_display}</code>\n'
+                        user_info = f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <b>{html.escape(db_user.full_name or "Без имени")}</b>\n🆔 ID: <code>{user_id_display}</code>\n'
                         if db_user.username:
                             user_info += f'📱 Username: @{html.escape(db_user.username)}\n'
 

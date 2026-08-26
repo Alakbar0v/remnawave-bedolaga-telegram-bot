@@ -376,7 +376,7 @@ async def view_withdrawal_request(callback: types.CallbackQuery, db_user: User, 
     text = f"""
 📋 <b>Заявка #{request.id}</b>
 
-👤 Пользователь: {user_name}
+<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Пользователь: {user_name}
 🆔 ID: <code>{user_tg_id}</code>
 💰 Сумма: <b>{request.amount_kopeks / 100:.0f}₽</b>
 📊 Статус: {status_text}
@@ -640,7 +640,7 @@ async def process_test_referral_earning(message: types.Message, db_user: User, d
 
     await message.answer(
         f'✅ <b>Тестовое начисление создано!</b>\n\n'
-        f'👤 Пользователь: {html.escape(target_user.full_name) if target_user.full_name else "Без имени"}\n'
+        f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Пользователь: {html.escape(target_user.full_name) if target_user.full_name else "Без имени"}\n'
         f'🆔 ID: <code>{target_telegram_id}</code>\n'
         f'💰 Сумма: <b>{amount_rubles:.0f}₽</b>\n'
         f'💳 Новый баланс: <b>{target_user.balance_kopeks / 100:.0f}₽</b>\n\n'
@@ -1073,7 +1073,7 @@ async def check_missing_bonuses(callback: types.CallbackQuery, db_user: User, db
 • Рефереерам: {report.total_missing_to_referrers / 100:.0f}₽
 • <b>Итого: {(report.total_missing_to_referrals + report.total_missing_to_referrers) / 100:.0f}₽</b>
 
-👤 <b>Список ({len(report.missing_bonuses)} чел.):</b>
+<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <b>Список ({len(report.missing_bonuses)} чел.):</b>
 """
             for i, mb in enumerate(report.missing_bonuses[:15], 1):
                 referral_name = html.escape(

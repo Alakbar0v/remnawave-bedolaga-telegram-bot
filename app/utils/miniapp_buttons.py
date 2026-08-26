@@ -236,7 +236,12 @@ def build_miniapp_or_callback_button(
                     icon_custom_emoji_id=resolved_emoji or None,
                 )
 
-    return InlineKeyboardButton(text=text, callback_data=callback_data)
+    final_text = strip_leading_emoji(text) if icon_custom_emoji_id else text
+    return InlineKeyboardButton(
+        text=final_text,
+        callback_data=callback_data,
+        icon_custom_emoji_id=icon_custom_emoji_id,
+    )
 
 
 # Префикс startapp/маршрута для диплинка на конкретный тикет в админ-кабинете.

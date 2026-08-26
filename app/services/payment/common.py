@@ -26,6 +26,7 @@ from app.services.subscription_checkout_service import (
     should_offer_checkout_resume,
 )
 from app.services.user_cart_service import user_cart_service
+from app.keyboards.inline import RETURN_CHECKOUT_ICON_CUSTOM_EMOJI_ID, SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID
 from app.utils.miniapp_buttons import build_main_menu_button, build_miniapp_or_callback_button
 from app.utils.payment_logger import payment_logger as logger
 
@@ -89,6 +90,7 @@ class PaymentCommonMixin:
         first_button = build_miniapp_or_callback_button(
             text=(texts.MENU_EXTEND_SUBSCRIPTION if has_active_subscription else texts.MENU_BUY_SUBSCRIPTION),
             callback_data=('subscription_extend' if has_active_subscription else 'menu_buy'),
+            icon_custom_emoji_id=None if has_active_subscription else SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
         )
 
         keyboard_rows: list[list[InlineKeyboardButton]] = [
@@ -111,7 +113,7 @@ class PaymentCommonMixin:
                 keyboard_rows.append(
                     [
                         build_miniapp_or_callback_button(
-                            text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT,
+                            text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT, icon_custom_emoji_id=RETURN_CHECKOUT_ICON_CUSTOM_EMOJI_ID,
                             callback_data='return_to_saved_cart',
                         )
                     ]
@@ -122,7 +124,7 @@ class PaymentCommonMixin:
                     keyboard_rows.append(
                         [
                             build_miniapp_or_callback_button(
-                                text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT,
+                                text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT, icon_custom_emoji_id=RETURN_CHECKOUT_ICON_CUSTOM_EMOJI_ID,
                                 callback_data='subscription_resume_checkout',
                             )
                         ]

@@ -653,7 +653,7 @@ async def show_messages_history(callback: types.CallbackQuery, db_user: User, db
 {status_emoji} <b>{broadcast.created_at.strftime('%d.%m.%Y %H:%M')}</b>
 📊 Отправлено: {broadcast.sent_count}/{broadcast.total_count} ({success_rate}%)
 🎯 Аудитория: {get_target_name(broadcast.target_type)}
-👤 Админ: {html.escape(broadcast.admin_name or '')}
+<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Админ: {html.escape(broadcast.admin_name or '')}
 📝 Сообщение: {message_preview}
 ━━━━━━━━━━━━━━━━━━━━━━━
 """

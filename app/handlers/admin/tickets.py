@@ -241,7 +241,7 @@ async def view_admin_ticket(
     id_label = 'Telegram ID' if (ticket.user and ticket.user.telegram_id) else 'ID'
 
     header = f'🎫 Тикет #{ticket.id}\n\n'
-    header += f'👤 Пользователь: {user_name}\n'
+    header += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Пользователь: {user_name}\n'
     header += f'🆔 {id_label}: <code>{telegram_id_display}</code>\n'
     if username_value:
         safe_username = html.escape(username_value)
@@ -263,7 +263,7 @@ async def view_admin_ticket(
     if ticket.messages:
         message_blocks.append(f'💬 Сообщения ({len(ticket.messages)}):\n\n')
         for msg in ticket.messages:
-            sender = '👤 Пользователь' if msg.is_user_message else '🛠️ Поддержка'
+            sender = '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Пользователь' if msg.is_user_message else '🛠️ Поддержка'
             block = f'{sender} ({msg.created_at.strftime("%d.%m %H:%M")}):\n{html.escape(msg.message_text)}\n\n'
             if getattr(msg, 'has_media', False) and getattr(msg, 'media_type', None) == 'photo':
                 block += '📎 Вложение: фото\n\n'
@@ -822,7 +822,7 @@ async def handle_admin_block_duration_input(message: types.Message, state: FSMCo
             }.get(updated.status, updated.status)
             user_name = html.escape(updated.user.full_name) if updated.user else 'Unknown'
             ticket_text = f'🎫 Тикет #{updated.id}\n\n'
-            ticket_text += f'👤 Пользователь: {user_name}\n'
+            ticket_text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Пользователь: {user_name}\n'
             ticket_text += f'📝 Заголовок: {html.escape(updated.title)}\n'
             ticket_text += f'📊 Статус: {updated.status_emoji} {status_text}\n'
             ticket_text += f'📅 Создан: {updated.created_at.strftime("%d.%m.%Y %H:%M")}\n'
@@ -854,7 +854,7 @@ async def handle_admin_block_duration_input(message: types.Message, state: FSMCo
             if updated.messages:
                 ticket_text += f'💬 Сообщения ({len(updated.messages)}):\n\n'
                 for msg in updated.messages:
-                    sender = '👤 Пользователь' if msg.is_user_message else '🛠️ Поддержка'
+                    sender = '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Пользователь' if msg.is_user_message else '🛠️ Поддержка'
                     ticket_text += f'{sender} ({msg.created_at.strftime("%d.%m %H:%M")}):\n'
                     ticket_text += f'{html.escape(msg.message_text)}\n\n'
                     if getattr(msg, 'has_media', False) and getattr(msg, 'media_type', None) == 'photo':

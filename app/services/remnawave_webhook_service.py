@@ -41,6 +41,7 @@ from app.services.admin_notification_service import AdminNotificationService
 from app.services.grace_access_runtime import get_open_grace_subscription_ids, grace_access_runtime
 from app.services.grace_access_service import GraceReason
 from app.services.notification_delivery_service import NotificationType, notification_delivery_service
+from app.keyboards.inline import CHAIN_ICON_CUSTOM_EMOJI_ID
 from app.utils.miniapp_buttons import build_miniapp_or_callback_button
 
 
@@ -1005,7 +1006,13 @@ class RemnaWaveWebhookService:
         button_text = texts.get('CONNECT_BUTTON', 'Connect')
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [build_miniapp_or_callback_button(text=button_text, callback_data='subscription_connect')],
+                [
+                    build_miniapp_or_callback_button(
+                        text=button_text,
+                        callback_data='subscription_connect',
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                    )
+                ],
             ]
         )
 

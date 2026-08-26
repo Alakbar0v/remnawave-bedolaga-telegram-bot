@@ -553,7 +553,7 @@ async def view_ticket(callback: types.CallbackQuery, db_user: User, db: AsyncSes
     if ticket.messages:
         message_blocks.append(f'💬 Сообщения ({len(ticket.messages)}):\n\n')
         for msg in ticket.messages:
-            sender = '👤 Вы' if msg.is_user_message else '🛠️ Поддержка'
+            sender = '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Вы' if msg.is_user_message else '🛠️ Поддержка'
             block = f'{sender} ({format_local_datetime(msg.created_at, "%d.%m %H:%M")}):\n{html.escape(msg.message_text or "")}\n\n'
             if getattr(msg, 'has_media', False) and getattr(msg, 'media_type', None) == 'photo':
                 block += '📎 Вложение: фото\n\n'
@@ -1072,7 +1072,7 @@ async def notify_admins_about_new_ticket(ticket: Ticket, db: AsyncSession):
         notification_text = (
             f'🎫 <b>НОВЫЙ ТИКЕТ</b>\n\n'
             f'🆔 <b>ID:</b> <code>{ticket.id}</code>\n'
-            f'👤 <b>Пользователь:</b> {full_name}\n'
+            f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <b>Пользователь:</b> {full_name}\n'
             f'🆔 <b>ID:</b> <code>{telegram_id_display}</code>\n'
             f'📱 <b>Username:</b> @{username_display}\n'
             f'📝 <b>Заголовок:</b> {safe_title}\n'
@@ -1139,7 +1139,7 @@ async def notify_admins_about_ticket_reply(
             f'💬 <b>ОТВЕТ НА ТИКЕТ</b>\n\n'
             f'🆔 <b>ID тикета:</b> <code>{ticket.id}</code>\n'
             f'📝 <b>Заголовок:</b> {safe_title}\n'
-            f'👤 <b>Пользователь:</b> {full_name}\n'
+            f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <b>Пользователь:</b> {full_name}\n'
             f'🆔 <b>ID:</b> <code>{telegram_id_display}</code>\n'
             f'📱 <b>Username:</b> @{username_display}\n\n'
             f'📩 <b>Сообщение:</b>\n{html.escape(reply_preview)}\n'

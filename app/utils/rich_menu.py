@@ -48,7 +48,6 @@ from app.database.models import User
 from app.localization.texts import Texts
 from app.utils.miniapp_buttons import build_miniapp_startapp_url
 from app.utils.promo_offer import build_promo_offer_hint, build_test_access_hint
-from app.utils.subscription_utils import get_happ_cryptolink_redirect_link
 from app.utils.timezone import format_local_datetime
 from app.utils.validators import sanitize_html
 
@@ -323,31 +322,6 @@ def _traffic_usage_text(subscription, texts) -> str:
     return f'{used} / {limit}'
 
 
-def _connect_url(subscription) -> str:
-    """URL мгновенного подключения подписки для текстовой ссылки.
-
-    В happ-режиме — https-обёртка редиректа над crypto-ссылкой (сырой happ://
-    в <a href> rich-HTML не поддерживается); иначе — страница подписки
-    subscription_url, если оператор не скрыл прямые ссылки.
-    """
-    if settings.is_happ_cryptolink_mode():
-        crypto_link = getattr(subscription, 'subscription_crypto_link', None)
-        redirect_link = get_happ_cryptolink_redirect_link(crypto_link) if crypto_link else None
-        if redirect_link:
-            return redirect_link
-    if settings.should_hide_subscription_link():
-        return ''
-    return getattr(subscription, 'subscription_url', None) or ''
-
-
-def _connect_link(subscription, texts) -> str:
-    url = _connect_url(subscription)
-    if not url:
-        return ''
-    label = _rich_text(texts.t('MAIN_MENU_RICH_CONNECT', '⚡ Подключить'))
-    return f'<a href="{html.escape(url, quote=True)}"><b>{label}</b></a>'
-
-
 def _trial_offer_link(user: User, texts) -> str:
     """Ссылка «Активировать триал» для нового юзера без использованного триала.
 
@@ -422,9 +396,6 @@ def _build_subscriptions_table(subscriptions, texts) -> str:
             if device_limit is not None:
                 # 0 — безлимит (HWID выключен), а не «нет устройств»: строку не прячем
                 usage_parts.append(f'📱 {Texts.format_device_limit(device_limit)}')
-            connect_link = _connect_link(subscription, texts)
-            if connect_link:
-                usage_parts.append(connect_link)
             rows.append(f'<tr><td colspan="3">{" · ".join(usage_parts)}</td></tr>')
         elif actual_status == 'expired':
             renew_link = _renew_link(getattr(subscription, 'id', None), texts)
@@ -484,9 +455,6 @@ async def _build_single_subscription_block(user: User, texts, db: AsyncSession) 
         if device_limit is not None:
             devices_template = texts.t('MAIN_MENU_RICH_DEVICES', '📱 Устройства: {devices}')
             lines.append(_rich_text(devices_template).replace('{devices}', Texts.format_device_limit(device_limit)))
-        connect_link = _connect_link(subscription, texts)
-        if connect_link:
-            lines.append(connect_link)
 
     if actual_status == 'expired':
         renew_link = _renew_link(getattr(subscription, 'id', None), texts)
@@ -505,7 +473,7 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
         blocks.append(f'<img src="{html.escape(logo_url, quote=True)}"/>')
 
     user_name = html.escape(user.full_name or '')
-    blocks.append(f'<h4>👤 {user_name}</h4>')
+    blocks.append(f'<h4><tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_name}</h4>')
     blocks.append('<hr/>')
 
     if settings.is_multi_tariff_enabled():
@@ -523,17 +491,15 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
             blocks.append(f'<h6>{_rich_text(heading)}</h6>')
             blocks.append(subscription_block)
     else:
-        heading = texts.t('MAIN_MENU_RICH_SUBSCRIPTION_HEADING', '📱 Подписка')
+        heading = texts.t(
+            'MAIN_MENU_RICH_SUBSCRIPTION_HEADING', '<tg-emoji emoji-id="5359719332542718652">💎</tg-emoji> Подписка'
+        )
         blocks.append(f'<h6>{_rich_text(heading)}</h6>')
         blocks.append(await _build_single_subscription_block(user, texts, db))
 
     trial_link = _trial_offer_link(user, texts)
     if trial_link:
         blocks.append(f'<p>{trial_link}</p>')
-
-    balance_template = texts.t('MAIN_MENU_RICH_BALANCE', '💰 Баланс: {balance}')
-    balance_value = f'<b>{html.escape(settings.format_price(user.balance_kopeks))}</b>'
-    blocks.append(f'<p>{_rich_text(balance_template).replace("{balance}", balance_value)}</p>')
 
     hint_sections: list[str] = []
     try:

@@ -435,7 +435,7 @@ class AdminNotificationService:
             message_lines = [
                 '🎯 <b>АКТИВАЦИЯ ТРИАЛА</b>',
                 '',
-                f'👤 <b>Пользователь:</b> {user_display}',
+                f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <b>Пользователь:</b> {user_display}',
                 f'🆔 <b>{user_id_label}:</b> {user_id_display}',
                 f'📱 <b>Username:</b> @{html.escape(getattr(user, "username", None) or "отсутствует")}',
                 f'👥 <b>Статус:</b> {user_status}',
@@ -580,7 +580,7 @@ class AdminNotificationService:
             message_lines = [
                 f'<b>{event_title}</b>',
                 '',
-                f'👤 {user_display} ({user_id_display})',
+                f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_display} ({user_id_display})',
             ]
 
             # Добавляем username только если есть
@@ -744,7 +744,7 @@ class AdminNotificationService:
         message_lines: list[str] = [
             '💰 <b>ПОПОЛНЕНИЕ БАЛАНСА</b>',
             '',
-            f'👤 {user_display} ({user_id_display})',
+            f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_display} ({user_id_display})',
         ]
 
         username = getattr(user, 'username', None)
@@ -1006,7 +1006,7 @@ class AdminNotificationService:
 
             message = f"""⏰ <b>ПРОДЛЕНИЕ ПОДПИСКИ</b>
 
-👤 <b>Пользователь:</b> {user_display}
+<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <b>Пользователь:</b> {user_display}
 🆔 <b>{user_id_label}:</b> {user_id_display}
 📱 <b>Username:</b> @{html.escape(getattr(user, 'username', None) or 'отсутствует')}
 
@@ -1093,7 +1093,7 @@ class AdminNotificationService:
             message_lines = [
                 '🎫 <b>АКТИВАЦИЯ ПРОМОКОДА</b>',
                 '',
-                f'👤 <b>Пользователь:</b> {user_display}',
+                f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <b>Пользователь:</b> {user_display}',
                 f'🆔 <b>{user_id_label}:</b> {user_id_display}',
                 f'📱 <b>Username:</b> @{html.escape(getattr(user, "username", None) or "отсутствует")}',
                 '',
@@ -1216,7 +1216,7 @@ class AdminNotificationService:
                 '',
                 f'🧾 {html.escape(campaign.name)} (<code>{html.escape(campaign.start_parameter)}</code>)',
                 '',
-                f'👤 {html.escape(full_name)} (<code>{telegram_user.id}</code>)',
+                f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {html.escape(full_name)} (<code>{telegram_user.id}</code>)',
             ]
 
             if telegram_user.username:
@@ -1317,7 +1317,7 @@ class AdminNotificationService:
                 '',
                 f'🧾 {html.escape(campaign.name)} (<code>{html.escape(campaign.start_parameter)}</code>)',
                 '',
-                f'👤 {html.escape(telegram_user_name)} (<code>{telegram_user_id}</code>)',
+                f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {html.escape(telegram_user_name)} (<code>{telegram_user_id}</code>)',
             ]
             if telegram_username:
                 message_lines.append(f'📱 @{html.escape(telegram_username)}')
@@ -1407,7 +1407,7 @@ class AdminNotificationService:
             message_lines = [
                 f'{title}',
                 '',
-                f'👤 <b>Пользователь:</b> {user_display}',
+                f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <b>Пользователь:</b> {user_display}',
                 f'🆔 <b>{user_id_label}:</b> {user_id_display}',
                 f'📱 <b>Username:</b> @{html.escape(getattr(user, "username", None) or "отсутствует")}',
                 '',
@@ -1660,7 +1660,7 @@ class AdminNotificationService:
                 buyer = getattr(purchase, 'buyer', None)
                 if buyer:
                     buyer_name = f'@{buyer.username}' if buyer.username else buyer.email or f'id:{buyer.id}'
-                    message_lines.append(f'👤 Покупатель: <code>{html.escape(buyer_name)}</code>')
+                    message_lines.append(f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Покупатель: <code>{html.escape(buyer_name)}</code>')
                 else:
                     message_lines.append(f'{contact_icon} Покупатель: <code>{contact_display}</code>')
             else:
@@ -2030,7 +2030,7 @@ class AdminNotificationService:
             message_lines = [
                 f'<b>{title}</b>',
                 '',
-                f'👤 {user_display} ({user_id_display})',
+                f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_display} ({user_id_display})',
             ]
 
             # Добавляем username только если есть
@@ -2137,7 +2137,7 @@ class AdminNotificationService:
             message_lines = [
                 '🤝 <b>ЗАЯВКА НА ПАРТНЁРКУ</b>',
                 '',
-                f'👤 {user_display} ({user_id_display})',
+                f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_display} ({user_id_display})',
             ]
 
             username = getattr(user, 'username', None)
@@ -2192,7 +2192,7 @@ class AdminNotificationService:
             message_lines = [
                 '💸 <b>ЗАПРОС НА ВЫВОД СРЕДСТВ</b>',
                 '',
-                f'👤 {user_display} ({user_id_display})',
+                f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_display} ({user_id_display})',
             ]
 
             username = getattr(user, 'username', None)

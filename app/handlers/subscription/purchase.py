@@ -20,6 +20,8 @@ from app.database.crud.transaction import create_transaction
 from app.database.crud.user import subtract_user_balance
 from app.database.models import PaymentMethod, Subscription, SubscriptionStatus, TransactionType, User
 from app.keyboards.inline import (
+    CHAIN_ICON_CUSTOM_EMOJI_ID,
+    SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
     get_back_keyboard,
     get_countries_keyboard,
     get_devices_keyboard,
@@ -445,7 +447,7 @@ async def show_subscription_info(callback: types.CallbackQuery, db_user: User, d
         # Для суточных тарифов другой шаблон без "Действует до" и "Осталось"
         message_template = texts.t(
             'SUBSCRIPTION_DAILY_OVERVIEW_TEMPLATE',
-            """👤 {full_name}
+            """<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {full_name}
 💰 Баланс: {balance}
 📱 Подписка: {status_emoji} {status_display}{warning}{tariff_info_block}
 
@@ -458,7 +460,7 @@ async def show_subscription_info(callback: types.CallbackQuery, db_user: User, d
     else:
         message_template = texts.t(
             'SUBSCRIPTION_OVERVIEW_TEMPLATE',
-            """👤 {full_name}
+            """<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {full_name}
 💰 Баланс: {balance}
 📱 Подписка: {status_emoji} {status_display}{warning}{tariff_info_block}
 
@@ -1168,7 +1170,7 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 web_app=types.WebAppInfo(url=subscription_link),
                             )
                         ],
@@ -1195,7 +1197,7 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 web_app=types.WebAppInfo(url=settings.MINIAPP_CUSTOM_URL),
                             )
                         ],
@@ -1211,7 +1213,7 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                 rows = [
                     [
                         InlineKeyboardButton(
-                            text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                             url=subscription_link,
                         )
                     ]
@@ -1232,7 +1234,7 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                 rows = [
                     [
                         InlineKeyboardButton(
-                            text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                             callback_data='open_subscription_link',
                         )
                     ]
@@ -1254,7 +1256,7 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 callback_data='subscription_connect',
                             )
                         ],
@@ -1654,7 +1656,11 @@ async def handle_extend_subscription(
             '🎯 <b>Пробный период заканчивается</b>\n\nЧтобы продолжить пользоваться VPN, выберите подходящий тариф.',
             reply_markup=types.InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [types.InlineKeyboardButton(text=texts.MENU_BUY_SUBSCRIPTION, callback_data='menu_buy')],
+                    [types.InlineKeyboardButton(
+                        text=texts.MENU_BUY_SUBSCRIPTION,
+                        icon_custom_emoji_id=SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
+                        callback_data='menu_buy',
+                    )],
                     [
                         types.InlineKeyboardButton(
                             text=texts.t('WEBHOOK_CLOSE_BUTTON', '✖️ Закрыть'),
@@ -1680,7 +1686,11 @@ async def handle_extend_subscription(
             '🎯 <b>Пробный период заканчивается</b>\n\nЧтобы продолжить пользоваться VPN, выберите подходящий тариф.',
             reply_markup=types.InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [types.InlineKeyboardButton(text=texts.MENU_BUY_SUBSCRIPTION, callback_data='menu_buy')],
+                    [types.InlineKeyboardButton(
+                        text=texts.MENU_BUY_SUBSCRIPTION,
+                        icon_custom_emoji_id=SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
+                        callback_data='menu_buy',
+                    )],
                     [
                         types.InlineKeyboardButton(
                             text=texts.t('WEBHOOK_CLOSE_BUTTON', '✖️ Закрыть'),
@@ -2728,7 +2738,7 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 web_app=types.WebAppInfo(url=subscription_link),
                             )
                         ],
@@ -2755,7 +2765,7 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 web_app=types.WebAppInfo(url=settings.MINIAPP_CUSTOM_URL),
                             )
                         ],
@@ -2769,7 +2779,7 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
                 )
             elif connect_mode == 'link':
                 rows = [
-                    [InlineKeyboardButton(text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'), url=subscription_link)]
+                    [InlineKeyboardButton(text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID, url=subscription_link)]
                 ]
                 happ_row = get_happ_download_button_row(texts)
                 if happ_row:
@@ -2786,7 +2796,7 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
                 rows = [
                     [
                         InlineKeyboardButton(
-                            text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                             callback_data='open_subscription_link',
                         )
                     ]
@@ -2807,7 +2817,7 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'), callback_data='subscription_connect'
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID, callback_data='subscription_connect'
                             )
                         ],
                         [
@@ -3555,7 +3565,7 @@ def _build_trial_success_keyboard(texts, subscription_link: str, connect_mode: s
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                        text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=subscription_link),
                     )
                 ],
@@ -3575,7 +3585,7 @@ def _build_trial_success_keyboard(texts, subscription_link: str, connect_mode: s
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                        text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=settings.MINIAPP_CUSTOM_URL),
                     )
                 ],
@@ -3591,7 +3601,7 @@ def _build_trial_success_keyboard(texts, subscription_link: str, connect_mode: s
         rows = [
             [
                 InlineKeyboardButton(
-                    text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                    text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                     url=subscription_link,
                 )
             ]
@@ -3612,7 +3622,7 @@ def _build_trial_success_keyboard(texts, subscription_link: str, connect_mode: s
         rows = [
             [
                 InlineKeyboardButton(
-                    text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                    text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                     callback_data='open_subscription_link',
                 )
             ]
@@ -3633,7 +3643,7 @@ def _build_trial_success_keyboard(texts, subscription_link: str, connect_mode: s
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                    text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                     callback_data='subscription_connect',
                 )
             ],

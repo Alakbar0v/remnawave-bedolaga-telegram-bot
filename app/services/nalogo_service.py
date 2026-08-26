@@ -980,7 +980,7 @@ async def send_nalogo_receipt_notifications(
                     if full_name:
                         recipient_lines.append(f'📛 Имя: <code>{html_escape(full_name)}</code>')
                     if db_user.username:
-                        recipient_lines.append(f'👤 Username: @{db_user.username}')
+                        recipient_lines.append(f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Username: @{db_user.username}')
                     if db_user.email:
                         recipient_lines.append(f'📧 Почта: <code>{html_escape(db_user.email)}</code>')
                 else:
@@ -993,7 +993,7 @@ async def send_nalogo_receipt_notifications(
                 )
                 recipient_lines.append(f'🆔 Telegram ID: <code>{telegram_user_id}</code>')
         else:
-            recipient_lines.append('👤 Получатель: без Telegram (email/гость)')
+            recipient_lines.append('<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Получатель: без Telegram (email/гость)')
 
         recipient_block = '\n'.join(recipient_lines)
         context_line = f'\nℹ️ {context_label}' if context_label else ''

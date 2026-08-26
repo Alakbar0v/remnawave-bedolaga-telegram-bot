@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import User
-from app.keyboards.inline import get_happ_download_button_row
+from app.keyboards.inline import CHAIN_ICON_CUSTOM_EMOJI_ID, get_happ_download_button_row
 from app.localization.texts import get_texts
 from app.services.payment_service import PaymentService
 from app.services.subscription_purchase_service import SubscriptionPurchaseService
@@ -592,11 +592,12 @@ async def handle_simple_subscription_pay_with_balance(
 
         connect_mode = settings.CONNECT_BUTTON_MODE
         subscription_link = get_display_subscription_link(subscription)
-        connect_button_text = texts.t('CONNECT_BUTTON', '🔗 Подключиться')
+        connect_button_text = texts.t('CONNECT_BUTTON', 'Подключиться')
 
         def _fallback_connect_button() -> types.InlineKeyboardButton:
             return types.InlineKeyboardButton(
                 text=connect_button_text,
+                icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                 callback_data='subscription_connect',
             )
 
@@ -605,6 +606,7 @@ async def handle_simple_subscription_pay_with_balance(
                 connect_row = [
                     types.InlineKeyboardButton(
                         text=connect_button_text,
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=subscription_link),
                     )
                 ]
@@ -616,6 +618,7 @@ async def handle_simple_subscription_pay_with_balance(
                 connect_row = [
                     types.InlineKeyboardButton(
                         text=connect_button_text,
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=custom_url),
                     )
                 ]
@@ -626,6 +629,7 @@ async def handle_simple_subscription_pay_with_balance(
                 connect_row = [
                     types.InlineKeyboardButton(
                         text=connect_button_text,
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         url=subscription_link,
                     )
                 ]
@@ -636,6 +640,7 @@ async def handle_simple_subscription_pay_with_balance(
                 connect_row = [
                     types.InlineKeyboardButton(
                         text=connect_button_text,
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         callback_data='open_subscription_link',
                     )
                 ]
@@ -2340,11 +2345,12 @@ async def confirm_simple_subscription_purchase(
 
         connect_mode = settings.CONNECT_BUTTON_MODE
         subscription_link = get_display_subscription_link(subscription)
-        connect_button_text = texts.t('CONNECT_BUTTON', '🔗 Подключиться')
+        connect_button_text = texts.t('CONNECT_BUTTON', 'Подключиться')
 
         def _fallback_connect_button() -> types.InlineKeyboardButton:
             return types.InlineKeyboardButton(
                 text=connect_button_text,
+                icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                 callback_data='subscription_connect',
             )
 
@@ -2353,6 +2359,7 @@ async def confirm_simple_subscription_purchase(
                 connect_row = [
                     types.InlineKeyboardButton(
                         text=connect_button_text,
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=subscription_link),
                     )
                 ]
@@ -2364,6 +2371,7 @@ async def confirm_simple_subscription_purchase(
                 connect_row = [
                     types.InlineKeyboardButton(
                         text=connect_button_text,
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=custom_url),
                     )
                 ]
@@ -2374,6 +2382,7 @@ async def confirm_simple_subscription_purchase(
                 connect_row = [
                     types.InlineKeyboardButton(
                         text=connect_button_text,
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         url=subscription_link,
                     )
                 ]
@@ -2384,6 +2393,7 @@ async def confirm_simple_subscription_purchase(
                 connect_row = [
                     types.InlineKeyboardButton(
                         text=connect_button_text,
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         callback_data='open_subscription_link',
                     )
                 ]

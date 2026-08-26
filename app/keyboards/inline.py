@@ -24,6 +24,23 @@ from app.utils.subscription_utils import (
 
 logger = structlog.get_logger(__name__)
 
+# Кастомные эмодзи-иконки на кнопках прямой оплаты (icon_custom_emoji_id,
+# Bot API 9.4+) — рендерятся только в личке, если у владельца бота Premium
+# (или куплены доп-юзернеймы на Fragment), иначе Telegram молча их не покажет.
+SBP_ICON_CUSTOM_EMOJI_ID = '5217837965547427903'
+CARD_ICON_CUSTOM_EMOJI_ID = '5375130280791131681'
+USER_ICON_CUSTOM_EMOJI_ID = '5258011929993026890'
+CHAIN_ICON_CUSTOM_EMOJI_ID = '5260730055880876557'
+SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID = '5359719332542718652'
+BALANCE_ICON_CUSTOM_EMOJI_ID = '5258204546391351475'
+TRIAL_ICON_CUSTOM_EMOJI_ID = '6283073379184415506'
+ROCKET_ICON_CUSTOM_EMOJI_ID = '5445284980978621387'
+RETURN_CHECKOUT_ICON_CUSTOM_EMOJI_ID = '5258236805890710909'
+REFERRALS_ICON_CUSTOM_EMOJI_ID = '5258513401784573443'
+INFO_ICON_CUSTOM_EMOJI_ID = '5258503720928288433'
+PROMOCODE_ICON_CUSTOM_EMOJI_ID = '5258331647358540449'
+SUPPORT_ICON_CUSTOM_EMOJI_ID = '5258132936401624790'
+
 
 async def get_main_menu_keyboard_async(
     db: AsyncSession,
@@ -282,6 +299,7 @@ def get_post_registration_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKe
             [
                 InlineKeyboardButton(
                     text=texts.t('POST_REGISTRATION_TRIAL_BUTTON', '🚀 Подключиться бесплатно 🚀'),
+                    icon_custom_emoji_id=ROCKET_ICON_CUSTOM_EMOJI_ID,
                     callback_data='trial_activate',
                 )
             ],
@@ -420,7 +438,16 @@ def _build_cabinet_main_menu_keyboard(
                 style=resolved,
                 icon_custom_emoji_id=resolved_emoji or None,
             )
-        return InlineKeyboardButton(text=text, callback_data=callback_fallback)
+
+        resolved_emoji = icon_custom_emoji_id or None
+        from app.utils.miniapp_buttons import strip_leading_emoji
+
+        final_text = strip_leading_emoji(text) if resolved_emoji else text
+        return InlineKeyboardButton(
+            text=final_text,
+            callback_data=callback_fallback,
+            icon_custom_emoji_id=resolved_emoji,
+        )
 
     # -- Collect row definitions sorted by row_N key --
     row_keys = sorted(
@@ -479,24 +506,46 @@ def _build_cabinet_main_menu_keyboard(
                     home_text = section_cfg.get('labels', {}).get(language, '') or texts.t(
                         'MENU_PROFILE', '👤 Личный кабинет'
                     )
-                    row_buttons.append(_cabinet_button(home_text, '/', 'menu_profile_unavailable'))
+                    row_buttons.append(
+                        _cabinet_button(
+                            home_text,
+                            '/',
+                            'menu_profile_unavailable',
+                            icon_custom_emoji_id=USER_ICON_CUSTOM_EMOJI_ID,
+                        )
+                    )
 
                 case 'subscription':
                     if not section_cfg.get('enabled', True):
                         continue
+                    is_multi_tariff = settings.is_multi_tariff_enabled()
                     default_sub_text = (
                         texts.t('MY_SUBSCRIPTIONS_BUTTON', '📱 Мои подписки')
-                        if settings.is_multi_tariff_enabled()
+                        if is_multi_tariff
                         else texts.MENU_SUBSCRIPTION
                     )
                     sub_text = section_cfg.get('labels', {}).get(language, '') or default_sub_text
-                    row_buttons.append(_cabinet_button(sub_text, '/subscription', 'menu_subscription'))
+                    row_buttons.append(
+                        _cabinet_button(
+                            sub_text,
+                            '/subscription',
+                            'menu_subscription',
+                            icon_custom_emoji_id=None if is_multi_tariff else SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
+                        )
+                    )
 
                 case 'balance':
                     if not section_cfg.get('enabled', True):
                         continue
                     balance_text = _get_balance_text(cached_styles, language, texts, balance_kopeks)
-                    row_buttons.append(_cabinet_button(balance_text, '/balance', 'menu_balance'))
+                    row_buttons.append(
+                        _cabinet_button(
+                            balance_text,
+                            '/balance',
+                            'menu_balance',
+                            icon_custom_emoji_id=BALANCE_ICON_CUSTOM_EMOJI_ID,
+                        )
+                    )
 
                 case 'referral':
                     if not settings.is_referral_program_enabled():
@@ -504,7 +553,14 @@ def _build_cabinet_main_menu_keyboard(
                     if not section_cfg.get('enabled', True):
                         continue
                     ref_text = section_cfg.get('labels', {}).get(language, '') or texts.MENU_REFERRALS
-                    row_buttons.append(_cabinet_button(ref_text, '/referral', 'menu_referrals'))
+                    row_buttons.append(
+                        _cabinet_button(
+                            ref_text,
+                            '/referral',
+                            'menu_referrals',
+                            icon_custom_emoji_id=REFERRALS_ICON_CUSTOM_EMOJI_ID,
+                        )
+                    )
 
                 case 'support':
                     if not _is_support_enabled():
@@ -512,13 +568,27 @@ def _build_cabinet_main_menu_keyboard(
                     if not section_cfg.get('enabled', True):
                         continue
                     sup_text = section_cfg.get('labels', {}).get(language, '') or texts.MENU_SUPPORT
-                    row_buttons.append(_cabinet_button(sup_text, '/support', 'menu_support'))
+                    row_buttons.append(
+                        _cabinet_button(
+                            sup_text,
+                            '/support',
+                            'menu_support',
+                            icon_custom_emoji_id=SUPPORT_ICON_CUSTOM_EMOJI_ID,
+                        )
+                    )
 
                 case 'info':
                     if not section_cfg.get('enabled', True):
                         continue
                     info_text = section_cfg.get('labels', {}).get(language, '') or texts.t('MENU_INFO', 'ℹ️ Инфо')
-                    row_buttons.append(_cabinet_button(info_text, '/info', 'menu_info'))
+                    row_buttons.append(
+                        _cabinet_button(
+                            info_text,
+                            '/info',
+                            'menu_info',
+                            icon_custom_emoji_id=INFO_ICON_CUSTOM_EMOJI_ID,
+                        )
+                    )
 
                 case 'language':
                     if not section_cfg.get('enabled', True):
@@ -622,7 +692,7 @@ def get_main_menu_keyboard(
 
         def _fallback_connect_button() -> InlineKeyboardButton:
             return InlineKeyboardButton(
-                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                 callback_data='subscription_connect',
             )
 
@@ -631,7 +701,7 @@ def get_main_menu_keyboard(
                 keyboard.append(
                     [
                         InlineKeyboardButton(
-                            text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                             web_app=types.WebAppInfo(url=subscription_link),
                         )
                     ]
@@ -642,7 +712,7 @@ def get_main_menu_keyboard(
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                        text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=settings.MINIAPP_CUSTOM_URL),
                     )
                 ]
@@ -650,7 +720,7 @@ def get_main_menu_keyboard(
         elif connect_mode == 'link':
             if subscription_link:
                 keyboard.append(
-                    [InlineKeyboardButton(text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'), url=subscription_link)]
+                    [InlineKeyboardButton(text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID, url=subscription_link)]
                 )
             else:
                 keyboard.append([_fallback_connect_button()])
@@ -659,7 +729,7 @@ def get_main_menu_keyboard(
                 keyboard.append(
                     [
                         InlineKeyboardButton(
-                            text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                             callback_data=(
                                 'subscription_connect'
                                 if settings.is_multi_tariff_enabled()
@@ -676,12 +746,17 @@ def get_main_menu_keyboard(
         happ_row = get_happ_download_button_row(texts)
         if happ_row:
             keyboard.append(happ_row)
+        is_multi_tariff = settings.is_multi_tariff_enabled()
         sub_btn_text = (
-            texts.t('MY_SUBSCRIPTIONS_BUTTON', '📱 Мои подписки')
-            if settings.is_multi_tariff_enabled()
-            else texts.MENU_SUBSCRIPTION
+            texts.t('MY_SUBSCRIPTIONS_BUTTON', '📱 Мои подписки') if is_multi_tariff else texts.MENU_SUBSCRIPTION
         )
-        paired_buttons.append(InlineKeyboardButton(text=sub_btn_text, callback_data='menu_subscription'))
+        paired_buttons.append(
+            InlineKeyboardButton(
+                text=sub_btn_text,
+                icon_custom_emoji_id=None if is_multi_tariff else SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
+                callback_data='menu_subscription',
+            )
+        )
 
         # Добавляем кнопку докупки трафика для лимитированных подписок
         # В режиме тарифов проверяем tariff_id (детальная проверка в хендлере)
@@ -702,7 +777,15 @@ def get_main_menu_keyboard(
                 )
             )
 
-    keyboard.append([InlineKeyboardButton(text=balance_button_text, callback_data='menu_balance')])
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                text=balance_button_text,
+                icon_custom_emoji_id=BALANCE_ICON_CUSTOM_EMOJI_ID,
+                callback_data='menu_balance',
+            )
+        ]
+    )
 
     show_trial = (
         not has_had_paid_subscription
@@ -728,10 +811,22 @@ def get_main_menu_keyboard(
     subscription_buttons: list[InlineKeyboardButton] = []
 
     if show_trial:
-        subscription_buttons.append(InlineKeyboardButton(text=texts.MENU_TRIAL, callback_data='menu_trial'))
+        subscription_buttons.append(
+            InlineKeyboardButton(
+                text=texts.MENU_TRIAL,
+                icon_custom_emoji_id=TRIAL_ICON_CUSTOM_EMOJI_ID,
+                callback_data='menu_trial',
+            )
+        )
 
     if show_buy:
-        subscription_buttons.append(InlineKeyboardButton(text=texts.MENU_BUY_SUBSCRIPTION, callback_data='menu_buy'))
+        subscription_buttons.append(
+            InlineKeyboardButton(
+                text=texts.MENU_BUY_SUBSCRIPTION,
+                icon_custom_emoji_id=SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
+                callback_data='menu_buy',
+            )
+        )
 
     if subscription_buttons:
         paired_buttons.extend(subscription_buttons)
@@ -742,7 +837,7 @@ def get_main_menu_keyboard(
         resume_callback = 'return_to_saved_cart' if has_saved_cart else 'subscription_resume_checkout'
         paired_buttons.append(
             InlineKeyboardButton(
-                text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT,
+                text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT, icon_custom_emoji_id=RETURN_CHECKOUT_ICON_CUSTOM_EMOJI_ID,
                 callback_data=resume_callback,
             )
         )
@@ -753,11 +848,23 @@ def get_main_menu_keyboard(
                 paired_buttons.append(button)
 
     # Добавляем кнопки промокода и рефералов, учитывая настройки
-    paired_buttons.append(InlineKeyboardButton(text=texts.MENU_PROMOCODE, callback_data='menu_promocode'))
+    paired_buttons.append(
+        InlineKeyboardButton(
+            text=texts.MENU_PROMOCODE,
+            icon_custom_emoji_id=PROMOCODE_ICON_CUSTOM_EMOJI_ID,
+            callback_data='menu_promocode',
+        )
+    )
 
     # Добавляем кнопку рефералов, только если программа включена
     if settings.is_referral_program_enabled():
-        paired_buttons.append(InlineKeyboardButton(text=texts.MENU_REFERRALS, callback_data='menu_referrals'))
+        paired_buttons.append(
+            InlineKeyboardButton(
+                text=texts.MENU_REFERRALS,
+                icon_custom_emoji_id=REFERRALS_ICON_CUSTOM_EMOJI_ID,
+                callback_data='menu_referrals',
+            )
+        )
 
     # Добавляем кнопку конкурсов
     if settings.CONTESTS_ENABLED and settings.CONTESTS_BUTTON_VISIBLE:
@@ -773,7 +880,13 @@ def get_main_menu_keyboard(
         support_enabled = settings.SUPPORT_MENU_ENABLED
 
     if support_enabled:
-        paired_buttons.append(InlineKeyboardButton(text=texts.MENU_SUPPORT, callback_data='menu_support'))
+        paired_buttons.append(
+            InlineKeyboardButton(
+                text=texts.MENU_SUPPORT,
+                icon_custom_emoji_id=SUPPORT_ICON_CUSTOM_EMOJI_ID,
+                callback_data='menu_support',
+            )
+        )
 
     # Добавляем кнопку активации
     if settings.ACTIVATE_BUTTON_VISIBLE:
@@ -782,6 +895,7 @@ def get_main_menu_keyboard(
     paired_buttons.append(
         InlineKeyboardButton(
             text=texts.t('MENU_INFO', 'ℹ️ Инфо'),
+            icon_custom_emoji_id=INFO_ICON_CUSTOM_EMOJI_ID,
             callback_data='menu_info',
         )
     )
@@ -933,7 +1047,7 @@ def get_happ_cryptolink_keyboard(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                    text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                     url=final_redirect_link,
                 )
             ]
@@ -1083,7 +1197,7 @@ def get_insufficient_balance_keyboard(
     if has_saved_cart:
         return_row = [
             InlineKeyboardButton(
-                text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT,
+                text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT, icon_custom_emoji_id=RETURN_CHECKOUT_ICON_CUSTOM_EMOJI_ID,
                 callback_data='return_to_saved_cart',
             )
         ]
@@ -1092,7 +1206,7 @@ def get_insufficient_balance_keyboard(
     elif resume_callback:
         return_row = [
             InlineKeyboardButton(
-                text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT,
+                text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT, icon_custom_emoji_id=RETURN_CHECKOUT_ICON_CUSTOM_EMOJI_ID,
                 callback_data=resume_callback,
             )
         ]
@@ -1126,7 +1240,7 @@ def get_subscription_keyboard(
                 keyboard.append(
                     [
                         InlineKeyboardButton(
-                            text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                             web_app=types.WebAppInfo(url=subscription_link),
                         )
                     ]
@@ -1136,7 +1250,7 @@ def get_subscription_keyboard(
                     keyboard.append(
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 web_app=types.WebAppInfo(url=settings.MINIAPP_CUSTOM_URL),
                             )
                         ]
@@ -1145,20 +1259,20 @@ def get_subscription_keyboard(
                     keyboard.append(
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 callback_data=f'subscription_connect{_sub_suffix}',
                             )
                         ]
                     )
             elif connect_mode == 'link':
                 keyboard.append(
-                    [InlineKeyboardButton(text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'), url=subscription_link)]
+                    [InlineKeyboardButton(text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID, url=subscription_link)]
                 )
             elif connect_mode == 'happ_cryptolink':
                 keyboard.append(
                     [
                         InlineKeyboardButton(
-                            text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                             callback_data=f'open_subscription_link{_sub_suffix}',
                         )
                     ]
@@ -1167,7 +1281,7 @@ def get_subscription_keyboard(
                 keyboard.append(
                     [
                         InlineKeyboardButton(
-                            text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                             callback_data=f'subscription_connect{_sub_suffix}',
                         )
                     ]
@@ -1176,7 +1290,7 @@ def get_subscription_keyboard(
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                        text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=settings.MINIAPP_CUSTOM_URL),
                     )
                 ]
@@ -1185,7 +1299,7 @@ def get_subscription_keyboard(
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                        text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         callback_data=f'subscription_connect{_sub_suffix}',
                     )
                 ]
@@ -1197,7 +1311,13 @@ def get_subscription_keyboard(
 
         if is_trial:
             keyboard.append(
-                [InlineKeyboardButton(text=texts.MENU_BUY_SUBSCRIPTION, callback_data='subscription_upgrade')]
+                [
+                    InlineKeyboardButton(
+                        text=texts.MENU_BUY_SUBSCRIPTION,
+                        icon_custom_emoji_id=SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
+                        callback_data='subscription_upgrade',
+                    )
+                ]
             )
         else:
             # Проверяем, является ли тариф суточным
@@ -1308,7 +1428,7 @@ def get_payment_methods_keyboard_with_cart(
     keyboard.inline_keyboard.insert(
         -1,
         [  # Вставляем перед кнопкой "назад"
-            InlineKeyboardButton(text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT, callback_data='return_to_saved_cart')
+            InlineKeyboardButton(text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT, icon_custom_emoji_id=RETURN_CHECKOUT_ICON_CUSTOM_EMOJI_ID, callback_data='return_to_saved_cart')
         ],
     )
 
@@ -1652,7 +1772,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        text=texts.t('PAYMENT_SBP_YOOKASSA', '🏦 Оплатить по СБП (YooKassa)'),
+                        text=texts.t('PAYMENT_SBP_YOOKASSA', 'Оплатить по СБП (YooKassa)'),
+                        icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                         callback_data=_build_callback('yookassa_sbp'),
                     )
                 ]
@@ -1710,7 +1831,9 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_CARD_PAL24', '🏦 СБП (PayPalych)'), callback_data=_build_callback('pal24')
+                    text=texts.t('PAYMENT_CARD_PAL24', 'СБП (PayPalych)'),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
+                    callback_data=_build_callback('pal24'),
                 )
             ]
         )
@@ -1778,7 +1901,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_FREEKASSA_SBP', f'📱 {sbp_name}'),
+                    text=texts.t('PAYMENT_FREEKASSA_SBP', sbp_name),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('freekassa_sbp'),
                 )
             ]
@@ -1790,7 +1914,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_FREEKASSA_CARD', f'💳 {card_name}'),
+                    text=texts.t('PAYMENT_FREEKASSA_CARD', card_name),
+                    icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('freekassa_card'),
                 )
             ]
@@ -1818,7 +1943,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_KASSA_AI_SBP', f'📱 {sbp_name}'),
+                    text=texts.t('PAYMENT_KASSA_AI_SBP', sbp_name),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('kassa_ai_sbp'),
                 )
             ]
@@ -1830,7 +1956,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_KASSA_AI_CARD', f'💳 {card_name}'),
+                    text=texts.t('PAYMENT_KASSA_AI_CARD', card_name),
+                    icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('kassa_ai_card'),
                 )
             ]
@@ -1930,7 +2057,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_AURAPAY_SBP', f'📱 {sbp_name}'),
+                    text=texts.t('PAYMENT_AURAPAY_SBP', sbp_name),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('aurapay_sbp'),
                 )
             ]
@@ -1942,7 +2070,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_AURAPAY_CARD', f'💳 {card_name}'),
+                    text=texts.t('PAYMENT_AURAPAY_CARD', card_name),
+                    icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('aurapay_card'),
                 )
             ]
@@ -1970,7 +2099,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_ETOPLATEZHI_SBP', f'📱 {sbp_name}'),
+                    text=texts.t('PAYMENT_ETOPLATEZHI_SBP', sbp_name),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('etoplatezhi_sbp'),
                 )
             ]
@@ -1982,7 +2112,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_ETOPLATEZHI_CARD', f'💳 {card_name}'),
+                    text=texts.t('PAYMENT_ETOPLATEZHI_CARD', card_name),
+                    icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('etoplatezhi_card'),
                 )
             ]
@@ -2010,7 +2141,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_ANTILOPAY_SBP', f'📱 {sbp_name}'),
+                    text=texts.t('PAYMENT_ANTILOPAY_SBP', sbp_name),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('antilopay_sbp'),
                 )
             ]
@@ -2022,7 +2154,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_ANTILOPAY_CARD', f'💳 {card_name}'),
+                    text=texts.t('PAYMENT_ANTILOPAY_CARD', card_name),
+                    icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('antilopay_card'),
                 )
             ]
@@ -2063,7 +2196,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_JUPITER_SBP', f'📱 {jupiter_sbp_name}'),
+                    text=texts.t('PAYMENT_JUPITER_SBP', jupiter_sbp_name),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('jupiter_sbp'),
                 )
             ]
@@ -2087,7 +2221,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_DONUT_CARD', f'💳 {donut_card_name}'),
+                    text=texts.t('PAYMENT_DONUT_CARD', donut_card_name),
+                    icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('donut_card'),
                 )
             ]
@@ -2099,7 +2234,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_DONUT_SBP', f'📱 {donut_sbp_name}'),
+                    text=texts.t('PAYMENT_DONUT_SBP', donut_sbp_name),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('donut_sbp'),
                 )
             ]
@@ -2111,7 +2247,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_DONUT_SBP_QR', f'🏦 {donut_qr_name}'),
+                    text=texts.t('PAYMENT_DONUT_SBP_QR', donut_qr_name),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('donut_sbp_qr'),
                 )
             ]
@@ -2137,11 +2274,11 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
 
     if settings.is_lava_card_enabled():
         lava_card_name = settings.get_lava_card_display_name()
-        lava_name = settings.get_lava_display_name()
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_LAVA_CARD', f'💳 {lava_card_name} - через {lava_name}'),
+                    text=texts.t('PAYMENT_LAVA_CARD', lava_card_name),
+                    icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('lava_card'),
                 )
             ]
@@ -2150,11 +2287,11 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
 
     if settings.is_lava_sbp_enabled():
         lava_sbp_name = settings.get_lava_sbp_display_name()
-        lava_name = settings.get_lava_display_name()
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_LAVA_SBP', f'📱 {lava_sbp_name} - через {lava_name}'),
+                    text=texts.t('PAYMENT_LAVA_SBP', lava_sbp_name),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('lava_sbp'),
                 )
             ]
@@ -2178,7 +2315,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_CISPAY_CARD', f'💳 {cispay_card_name}'),
+                    text=texts.t('PAYMENT_CISPAY_CARD', cispay_card_name),
+                    icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('cispay_card'),
                 )
             ]
@@ -2190,7 +2328,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_CISPAY_SBP', f'📱 {cispay_sbp_name}'),
+                    text=texts.t('PAYMENT_CISPAY_SBP', cispay_sbp_name),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=_build_callback('cispay_sbp'),
                 )
             ]
@@ -3057,7 +3196,7 @@ def get_connection_guide_keyboard(
                     keyboard.append(
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 url=final_url,
                                 style='success',
                             )
@@ -3072,7 +3211,7 @@ def get_connection_guide_keyboard(
                     keyboard.append(
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 callback_data=_osl_cb,
                                 style='success',
                             )
@@ -3082,7 +3221,7 @@ def get_connection_guide_keyboard(
                     keyboard.append(
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 url=subscription_url,
                                 style='success',
                             )

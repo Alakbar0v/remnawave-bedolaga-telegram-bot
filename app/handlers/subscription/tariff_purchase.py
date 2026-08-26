@@ -23,6 +23,7 @@ from app.database.crud.transaction import create_transaction
 from app.database.crud.user import subtract_user_balance
 from app.database.database import AsyncSessionLocal
 from app.database.models import Tariff, Transaction, TransactionType, User
+from app.keyboards.inline import CARD_ICON_CUSTOM_EMOJI_ID, SBP_ICON_CUSTOM_EMOJI_ID
 from app.localization.texts import Texts, get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.subscription_service import SubscriptionService
@@ -337,7 +338,8 @@ def get_tariff_confirm_keyboard(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('SBP_PURCHASE_BUTTON', '⚡ Оформить с автооплатой СБП'),
+                    text=texts.t('SBP_PURCHASE_BUTTON', 'Оформить с автооплатой СБП'),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=f'tariff_sbp:{tariff_id}',
                 )
             ]
@@ -405,7 +407,8 @@ def _sbp_purchase_rows(tariff_id: int, texts) -> list[list[InlineKeyboardButton]
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('SBP_PURCHASE_BUTTON', '⚡ Оформить с автооплатой СБП'),
+                    text=texts.t('SBP_PURCHASE_BUTTON', 'Оформить с автооплатой СБП'),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=f'tariff_sbp:{tariff_id}',
                 )
             ]
@@ -471,7 +474,8 @@ def get_daily_tariff_confirm_keyboard(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('SBP_PURCHASE_BUTTON', '⚡ Оформить с автооплатой СБП'),
+                    text=texts.t('SBP_PURCHASE_BUTTON', 'Оформить с автооплатой СБП'),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
                     callback_data=f'tariff_sbp:{tariff_id}',
                 )
             ]
@@ -4795,7 +4799,13 @@ async def purchase_tariff_with_lava(
     buttons = []
     if redirect_url:
         buttons.append(
-            [InlineKeyboardButton(text=texts.t('LAVA_RECURRING_PAY_BUTTON', '💳 Оплатить'), url=redirect_url)]
+            [
+                InlineKeyboardButton(
+                    text=texts.t('LAVA_RECURRING_PAY_BUTTON', 'Оплатить'),
+                    icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
+                    url=redirect_url,
+                )
+            ]
         )
     buttons.append([InlineKeyboardButton(text=texts.BACK, callback_data='tariff_list')])
 
@@ -5479,7 +5489,9 @@ async def purchase_tariff_with_sbp(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('SBP_RECURRING_CONFIRM_BUTTON', '🏦 Подтвердить в банке'), url=redirect_url
+                    text=texts.t('SBP_RECURRING_CONFIRM_BUTTON', 'Подтвердить в банке'),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
+                    url=redirect_url,
                 )
             ]
         )

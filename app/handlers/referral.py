@@ -823,7 +823,7 @@ async def confirm_withdrawal_request(callback: types.CallbackQuery, db_user: Use
     admin_text = f"""
 🔔 <b>Новая заявка на вывод #{request.id}</b>
 
-👤 Пользователь: {safe_name}
+<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Пользователь: {safe_name}
 🆔 ID: <code>{user_id_display}</code>
 💰 Сумма: <b>{amount_kopeks / 100:.0f}₽</b>
 

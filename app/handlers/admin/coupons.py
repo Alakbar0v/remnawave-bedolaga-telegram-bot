@@ -71,7 +71,7 @@ def _format_batch_card(batch: CouponBatch, counts: dict[str, int]) -> str:
 
     max_per_user = getattr(batch, 'max_per_user', 0) or 0
     if max_per_user > 0:
-        text += f'👤 На пользователя: не более {max_per_user} шт.\n'
+        text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> На пользователя: не более {max_per_user} шт.\n'
 
     if batch.valid_until:
         text += f'⏰ Действует до: {format_datetime(batch.valid_until)}\n'
@@ -332,7 +332,7 @@ async def process_coupon_batch_expiry(message: types.Message, db_user: User, sta
 
     await state.update_data(coupon_expiry_days=expiry_days)
     await message.answer(
-        '👤 Сколько купонов из партии может активировать ОДИН пользователь?\n\n'
+        '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Сколько купонов из партии может активировать ОДИН пользователь?\n\n'
         '<i>0 — без ограничения. Для раздач и конкурсов ставьте 1, чтобы один '
         'человек не забрал всю партию.</i>',
         reply_markup=_CANCEL_KEYBOARD,
@@ -355,7 +355,7 @@ async def process_coupon_batch_per_user(message: types.Message, db_user: User, s
     price_line = f'💰 Опт: {settings.format_price(price_kopeks)}/шт\n' if price_kopeks > 0 else ''
     expiry_line = f'⏰ Срок: {expiry_days} дн.\n' if expiry_days > 0 else '⏰ Срок: бессрочно\n'
     per_user_line = (
-        f'👤 На пользователя: {max_per_user} шт.\n' if max_per_user > 0 else '👤 На пользователя: без ограничения\n'
+        f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> На пользователя: {max_per_user} шт.\n' if max_per_user > 0 else '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> На пользователя: без ограничения\n'
     )
 
     await message.answer(

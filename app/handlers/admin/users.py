@@ -850,7 +850,7 @@ async def _render_user_subscription_overview(
             user_link = user_html_link(user)
             user_id_display = user.telegram_id or user.email or f'#{user.id}'
             text = '📱 <b>Выберите подписку для управления</b>\n\n'
-            text += f'👤 {user_link} (ID: <code>{user_id_display}</code>)\n\n'
+            text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_link} (ID: <code>{user_id_display}</code>)\n\n'
             text += f'У пользователя <b>{len(subs_list)}</b> подписок:\n\n'
 
             picker_keyboard = []
@@ -896,7 +896,7 @@ async def _render_user_subscription_overview(
     text = '📱 <b>Подписка и настройки пользователя</b>\n\n'
     user_link = user_html_link(user)
     user_id_display = user.telegram_id or user.email or f'#{user.id}'
-    text += f'👤 {user_link} (ID: <code>{user_id_display}</code>)\n\n'
+    text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_link} (ID: <code>{user_id_display}</code>)\n\n'
 
     keyboard = []
 
@@ -1084,7 +1084,7 @@ async def show_user_transactions(callback: types.CallbackQuery, db_user: User, d
     text = '💳 <b>Транзакции пользователя</b>\n\n'
     user_link = user_html_link(user)
     user_id_display = user.telegram_id or user.email or f'#{user.id}'
-    text += f'👤 {user_link} (ID: <code>{user_id_display}</code>)\n'
+    text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_link} (ID: <code>{user_id_display}</code>)\n'
     text += f'💰 Текущий баланс: {settings.format_price(user.balance_kopeks)}\n\n'
 
     if transactions:
@@ -1446,7 +1446,7 @@ async def _build_user_referrals_view(
     )
     summary = texts.t(
         'ADMIN_USER_REFERRALS_SUMMARY',
-        '👤 {name} (ID: <code>{telegram_id}</code>)\n👥 Всего рефералов: {count}',
+        '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {name} (ID: <code>{telegram_id}</code>)\n👥 Всего рефералов: {count}',
     ).format(
         name=html.escape(user.full_name),
         telegram_id=user.telegram_id,
@@ -2522,7 +2522,7 @@ async def show_user_restrictions(callback: types.CallbackQuery, db_user: User, d
 
     text_lines = [
         '⚠️ <b>Ограничения пользователя</b>',
-        f'👤 {html.escape(user.full_name)}',
+        f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {html.escape(user.full_name)}',
         '',
         '✅ — разрешено, 🚫 — запрещено',
         '',
@@ -2659,7 +2659,7 @@ async def save_restriction_reason(message: types.Message, db_user: User, db: Asy
         '✅ <b>Причина ограничения сохранена</b>',
         '',
         '⚠️ <b>Ограничения пользователя</b>',
-        f'👤 {html.escape(user.full_name)}',
+        f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {html.escape(user.full_name)}',
         '',
         f'{"🚫" if restriction_topup else "✅"} Пополнение баланса',
         f'{"🚫" if restriction_subscription else "✅"} Продление/покупка подписки',
@@ -2736,7 +2736,7 @@ async def show_inactive_users(callback: types.CallbackQuery, db_user: User, db: 
         user_id_display = user.telegram_id or user.email or f'#{user.id}'
         has_active = any(s.is_active for s in (getattr(user, 'subscriptions', None) or []))
         sub_badge = ' 🛡️' if has_active else ''
-        text += f'👤 {user_link}{sub_badge}\n'
+        text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_link}{sub_badge}\n'
         text += f'🆔 <code>{user_id_display}</code>\n'
         last_activity_display = (
             format_time_ago(user.last_activity, db_user.language) if user.last_activity else 'Никогда'
@@ -2825,7 +2825,7 @@ async def show_user_statistics(callback: types.CallbackQuery, db_user: User, db:
     text = '📊 <b>Статистика пользователя</b>\n\n'
     user_link = user_html_link(user)
     user_id_display = user.telegram_id or user.email or f'#{user.id}'
-    text += f'👤 {user_link} (ID: <code>{user_id_display}</code>)\n\n'
+    text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_link} (ID: <code>{user_id_display}</code>)\n\n'
 
     text += '<b>Основная информация:</b>\n'
     text += f'• Дней с регистрации: {profile["registration_days"]}\n'
@@ -4781,7 +4781,7 @@ async def change_subscription_type(callback: types.CallbackQuery, db_user: User,
     current_type = '🎁 Триал' if subscription.is_trial else '💎 Платная'
 
     text = '🔄 <b>Смена типа подписки</b>\n\n'
-    text += f'👤 {html.escape(profile["user"].full_name)}\n'
+    text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {html.escape(profile["user"].full_name)}\n'
     text += f'📱 Текущий тип: {current_type}\n\n'
     text += 'Выберите новый тип подписки:'
 
@@ -4874,7 +4874,7 @@ async def admin_buy_subscription(callback: types.CallbackQuery, db_user: User, d
     text = '💳 <b>Покупка подписки для пользователя</b>\n\n'
     target_user_link = user_html_link(target_user)
     target_user_id_display = target_user.telegram_id or target_user.email or f'#{target_user.id}'
-    text += f'👤 {target_user_link} (ID: {target_user_id_display})\n'
+    text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {target_user_link} (ID: {target_user_id_display})\n'
     text += f'💰 Баланс пользователя: {settings.format_price(target_user.balance_kopeks)}\n\n'
     traffic_text = 'Безлимит' if (subscription.traffic_limit_gb or 0) <= 0 else f'{subscription.traffic_limit_gb} ГБ'
     devices_limit = subscription.device_limit
@@ -4965,7 +4965,7 @@ async def admin_buy_subscription_confirm(callback: types.CallbackQuery, db_user:
     text = '💳 <b>Подтверждение покупки подписки</b>\n\n'
     target_user_link = user_html_link(target_user)
     target_user_id_display = target_user.telegram_id or target_user.email or f'#{target_user.id}'
-    text += f'👤 {target_user_link} (ID: {target_user_id_display})\n'
+    text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {target_user_link} (ID: {target_user_id_display})\n'
     text += f'📅 Период подписки: {period_days} дней\n'
     text += f'💰 Стоимость: {settings.format_price(price_kopeks)}\n'
     text += f'💰 Баланс пользователя: {settings.format_price(target_user.balance_kopeks)}\n\n'
@@ -5250,7 +5250,7 @@ async def admin_buy_subscription_execute(callback: types.CallbackQuery, db_user:
         target_user_id_display = target_user.telegram_id or target_user.email or f'#{target_user.id}'
         await callback.message.edit_text(
             f'{message}\n\n'
-            f'👤 {target_user_link} (ID: {target_user_id_display})\n'
+            f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {target_user_link} (ID: {target_user_id_display})\n'
             f'💰 Списано: {settings.format_price(price_kopeks)}\n'
             f'📅 Подписка действительна до: {format_datetime(subscription.end_date)}',
             reply_markup=types.InlineKeyboardMarkup(
@@ -5334,7 +5334,7 @@ async def admin_buy_tariff(callback: types.CallbackQuery, db_user: User, db: Asy
     target_user_link = user_html_link(target_user)
     target_user_id_display = target_user.telegram_id or target_user.email or f'#{target_user.id}'
     text = '💳 <b>Покупка тарифа для пользователя</b>\n\n'
-    text += f'👤 {target_user_link} (ID: {target_user_id_display})\n'
+    text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {target_user_link} (ID: {target_user_id_display})\n'
     text += f'💰 Баланс: {settings.format_price(target_user.balance_kopeks)}\n\n'
     text += '📦 <b>Выберите тариф:</b>\n\n'
 
@@ -5392,7 +5392,7 @@ async def admin_buy_tariff_period(callback: types.CallbackQuery, db_user: User, 
     traffic = '♾️ Безлимит' if tariff.traffic_limit_gb == 0 else f'{tariff.traffic_limit_gb} ГБ'
 
     text = '💳 <b>Покупка тарифа для пользователя</b>\n\n'
-    text += f'👤 {target_user_link} (ID: {target_user_id_display})\n'
+    text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {target_user_link} (ID: {target_user_id_display})\n'
     text += f'💰 Баланс: {settings.format_price(target_user.balance_kopeks)}\n\n'
     text += f'📦 <b>Тариф: {html.escape(tariff.name)}</b>\n'
     text += f'📊 Трафик: {traffic}\n'
@@ -5477,7 +5477,7 @@ async def admin_buy_tariff_confirm(callback: types.CallbackQuery, db_user: User,
     traffic = '♾️ Безлимит' if tariff.traffic_limit_gb == 0 else f'{tariff.traffic_limit_gb} ГБ'
 
     text = '💳 <b>Подтверждение покупки тарифа</b>\n\n'
-    text += f'👤 {target_user_link} (ID: {target_user_id_display})\n'
+    text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {target_user_link} (ID: {target_user_id_display})\n'
     text += f'💰 Баланс: {settings.format_price(target_user.balance_kopeks)}\n\n'
     text += f'📦 <b>Тариф: {html.escape(tariff.name)}</b>\n'
     text += f'📊 Трафик: {traffic}\n'
@@ -5651,7 +5651,7 @@ async def admin_buy_tariff_execute(callback: types.CallbackQuery, db_user: User,
 
         await callback.message.edit_text(
             f'✅ <b>Тариф успешно куплен!</b>\n\n'
-            f'👤 {target_user_link} (ID: {target_user_id_display})\n'
+            f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {target_user_link} (ID: {target_user_id_display})\n'
             f'📦 Тариф: {html.escape(tariff.name)}\n'
             f'📊 Трафик: {traffic}\n'
             f'📱 Устройств: {Texts.format_device_limit(tariff.device_limit)}\n'
@@ -5831,7 +5831,7 @@ async def show_admin_tariff_change(callback: types.CallbackQuery, db_user: User,
 
     text = '📦 <b>Смена тарифа пользователя</b>\n\n'
     user_link = user_html_link(user)
-    text += f'👤 {user_link}\n\n'
+    text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_link}\n\n'
 
     if current_tariff:
         text += f'<b>Текущий тариф:</b> {html.escape(current_tariff.name)}\n\n'
@@ -5919,7 +5919,7 @@ async def select_admin_tariff_change(callback: types.CallbackQuery, db_user: Use
 
     text = '📦 <b>Подтверждение смены тарифа</b>\n\n'
     user_link = user_html_link(user)
-    text += f'👤 {user_link}\n\n'
+    text += f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_link}\n\n'
     text += f'<b>Новый тариф:</b> {html.escape(tariff.name)}\n'
     text += f'• Устройства: {Texts.format_device_limit(tariff.device_limit)}\n'
     text += f'• Трафик: {traffic_str}\n'

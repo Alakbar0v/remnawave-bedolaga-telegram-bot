@@ -1,24 +1,45 @@
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
 
 from app.config import settings
+from app.keyboards.inline import (
+    BALANCE_ICON_CUSTOM_EMOJI_ID,
+    PROMOCODE_ICON_CUSTOM_EMOJI_ID,
+    REFERRALS_ICON_CUSTOM_EMOJI_ID,
+    SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
+    SUPPORT_ICON_CUSTOM_EMOJI_ID,
+)
 from app.localization.texts import get_texts
 
 
 def get_main_reply_keyboard(language: str = 'ru') -> ReplyKeyboardMarkup:
     texts = get_texts(language)
 
-    keyboard = [[KeyboardButton(text=texts.MENU_BALANCE), KeyboardButton(text=texts.MENU_SUBSCRIPTION)]]
+    keyboard = [
+        [
+            KeyboardButton(text=texts.MENU_BALANCE, icon_custom_emoji_id=BALANCE_ICON_CUSTOM_EMOJI_ID),
+            KeyboardButton(text=texts.MENU_SUBSCRIPTION, icon_custom_emoji_id=SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID),
+        ]
+    ]
 
     # Добавляем кнопки промокода и рефералов, учитывая настройки
-    second_row = [KeyboardButton(text=texts.MENU_PROMOCODE)]
+    second_row = [
+        KeyboardButton(text=texts.MENU_PROMOCODE, icon_custom_emoji_id=PROMOCODE_ICON_CUSTOM_EMOJI_ID)
+    ]
 
     # Добавляем кнопку рефералов только если программа включена
     if settings.is_referral_program_enabled():
-        second_row.append(KeyboardButton(text=texts.MENU_REFERRALS))
+        second_row.append(
+            KeyboardButton(text=texts.MENU_REFERRALS, icon_custom_emoji_id=REFERRALS_ICON_CUSTOM_EMOJI_ID)
+        )
 
     keyboard.append(second_row)
 
-    keyboard.append([KeyboardButton(text=texts.MENU_SUPPORT), KeyboardButton(text=texts.MENU_RULES)])
+    keyboard.append(
+        [
+            KeyboardButton(text=texts.MENU_SUPPORT, icon_custom_emoji_id=SUPPORT_ICON_CUSTOM_EMOJI_ID),
+            KeyboardButton(text=texts.MENU_RULES),
+        ]
+    )
 
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, one_time_keyboard=False)
 
