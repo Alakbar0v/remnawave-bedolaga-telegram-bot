@@ -8,11 +8,13 @@ from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any
 
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.database import AsyncSessionLocal
 from app.database.models import PaymentMethod, TransactionType
+from app.keyboards.inline import SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID
 from app.services.pricing_engine import RenewalPricing, pricing_engine
 from app.services.subscription_renewal_service import (
     RenewalPaymentDescriptor,
@@ -555,6 +557,19 @@ class CryptoBotPaymentMixin:
 
         if getattr(self, 'bot', None) and user.telegram_id and settings.is_notifications_enabled():
             try:
+                # Та же кнопка "Подписка" (иконка + callback), что и в главном меню
+                # (см. get_main_menu_keyboard в app/keyboards/inline.py).
+                subscription_keyboard = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text='Подписка',
+                                icon_custom_emoji_id=SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
+                                callback_data='menu_subscription',
+                            )
+                        ]
+                    ]
+                )
                 await self.bot.send_message(
                     chat_id=user.telegram_id,
                     text=(
@@ -565,6 +580,7 @@ class CryptoBotPaymentMixin:
                         'Используйте меню для подключения к VPN.'
                     ),
                     parse_mode='HTML',
+                    reply_markup=subscription_keyboard,
                 )
             except Exception as notify_error:
                 logger.warning('Ошибка уведомления пользователя о триале (CryptoBot)', notify_error=notify_error)
