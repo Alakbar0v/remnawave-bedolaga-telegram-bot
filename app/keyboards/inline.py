@@ -29,6 +29,7 @@ logger = structlog.get_logger(__name__)
 # (или куплены доп-юзернеймы на Fragment), иначе Telegram молча их не покажет.
 SBP_ICON_CUSTOM_EMOJI_ID = '5217837965547427903'
 CARD_ICON_CUSTOM_EMOJI_ID = '5375130280791131681'
+CRYPTO_ICON_CUSTOM_EMOJI_ID = '5280963835790894176'
 USER_ICON_CUSTOM_EMOJI_ID = '5258011929993026890'
 CHAIN_ICON_CUSTOM_EMOJI_ID = '5260730055880876557'
 SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID = '5359719332542718652'
@@ -1842,12 +1843,27 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
     if settings.is_platega_enabled() and settings.get_platega_active_methods():
         platega_name = settings.get_platega_display_name()
         if settings.PLATEGA_INLINE_METHODS:
+            # СБП/Карта (RUB)/Крипта получают те же custom-emoji иконки, что и Lava
+            # (крипта — своя иконка, у Lava карточных методов криптовалюты нет), и
+            # больше не несут суффикс "(Platega)" — по аналогии с freekassa/aurapay и др.,
+            # где иконка уже сама по себе идентифицирует провайдера.
+            platega_icon_by_method = {
+                2: SBP_ICON_CUSTOM_EMOJI_ID,
+                11: CARD_ICON_CUSTOM_EMOJI_ID,
+                13: CRYPTO_ICON_CUSTOM_EMOJI_ID,
+            }
             for method_code in settings.get_platega_active_methods():
-                title = settings.get_platega_method_display_title(method_code)
+                icon = platega_icon_by_method.get(method_code)
+                if icon:
+                    text = settings.get_platega_method_display_name(method_code)
+                else:
+                    title = settings.get_platega_method_display_title(method_code)
+                    text = f'{title} ({platega_name})'
                 keyboard.append(
                     [
                         InlineKeyboardButton(
-                            text=f'{title} ({platega_name})',
+                            text=text,
+                            icon_custom_emoji_id=icon,
                             callback_data=_build_callback(f'platega_m{method_code}'),
                         )
                     ]
