@@ -1,8 +1,12 @@
 """add tiktok_click_id_map table
 
-Revision ID: 0105
+Revision ID: custom_0001
 Revises: 0104
 Create Date: 2026-08-05
+
+Part of our fork's own migration branch (``custom_*``), kept parallel to
+upstream's numeric revisions so future upstream pulls never collide on a
+revision id. See custom_merge_0106 for where the branches rejoin.
 """
 
 from typing import Sequence, Union
@@ -10,7 +14,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = '0105'
+revision: str = 'custom_0001'
 down_revision: Union[str, None] = '0104'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

@@ -53,6 +53,7 @@ def _purchase(**overrides) -> SimpleNamespace:
         contact_value='555',
         subid=None,
         referrer=None,
+        campaign_slug=None,
         cabinet_password=None,
         auto_login_token=None,
         subscription_url=None,

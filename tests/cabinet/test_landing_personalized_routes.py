@@ -60,6 +60,7 @@ def _landing(**overrides) -> SimpleNamespace:
 def _request() -> MagicMock:
     req = MagicMock()
     req.headers.get.return_value = None
+    req.cookies.get.return_value = None
     return req
 
 

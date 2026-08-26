@@ -73,6 +73,7 @@ from .ticket_notifications import (
 )
 from .tickets import router as tickets_router
 from .tiktok_redirect import router as tiktok_redirect_router
+from .unsubscribe import router as unsubscribe_router
 from .websocket import router as websocket_router
 from .wheel import router as wheel_router
 from .withdrawal import router as withdrawal_router
@@ -85,6 +86,8 @@ router = APIRouter(prefix='/cabinet', tags=['Cabinet'], redirect_slashes=False)
 # Final path becomes `/cabinet/public/site-verification`. Has its own
 # `/public` prefix so it's clearly separated from authenticated routes.
 router.include_router(site_verification_router)
+# Отписка от рассылок — тоже без авторизации: по ссылке ходят почтовые клиенты.
+router.include_router(unsubscribe_router)
 
 # Include all sub-routers
 router.include_router(auth_router)
