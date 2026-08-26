@@ -52,6 +52,7 @@ class PlategaPaymentMixin:
         payment_method_code: int,
         return_url: str | None = None,
         failed_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         service: PlategaService | None = getattr(self, 'platega_service', None)
         if not service or not service.is_configured:
@@ -105,10 +106,11 @@ class PlategaPaymentMixin:
         status = str(response.get('status') or 'PENDING').upper()
         expires_at = PlategaService.parse_expires_at(response.get('expiresIn'))
 
-        metadata = {
+        payment_metadata = {
             'raw_response': response,
             'language': language,
             'selected_method': payment_method_code,
+            **(metadata or {}),
         }
 
         payment_module = import_module('app.services.payment_service')
@@ -127,7 +129,7 @@ class PlategaPaymentMixin:
             return_url=effective_return_url,
             failed_url=effective_failed_url,
             payload=payload_token,
-            metadata=metadata,
+            metadata=payment_metadata,
             expires_at=expires_at,
         )
 
@@ -892,6 +894,14 @@ class PlategaPaymentMixin:
             payment.callback_payload = payload
         payment.updated_at = datetime.now(UTC)
 
+        # --- Paid trial activation: pays for a pending trial subscription,
+        # NOT a balance top-up. Mirrors YooKassaPaymentMixin's is_trial_payment
+        # branch — see app/services/payment/yookassa.py. Must run before the
+        # DEPOSIT/balance-credit flow below, which otherwise treats every
+        # confirmed Platega payment as a top-up.
+        if metadata.get('type') == 'trial':
+            return await self._finalize_platega_trial_payment(db, payment, metadata)
+
         balance_already_credited = bool(metadata.get('balance_credited'))
 
         invoice_message = metadata.get('invoice_message') or {}
@@ -1079,6 +1089,150 @@ class PlategaPaymentMixin:
 
         logger.info(
             '✅ Обработан Platega платеж для пользователя',
+            correlation_id=payment.correlation_id,
+            user_id=payment.user_id,
+        )
+
+        return payment
+
+    async def _finalize_platega_trial_payment(
+        self,
+        db: AsyncSession,
+        payment: Any,
+        metadata: dict[str, Any],
+    ) -> Any:
+        """Активирует pending триальную подписку по успешному Platega-платежу.
+
+        Платёж за платный триал не пополняет баланс — деньги сразу идут в
+        оплату подписки, той же логикой, что и is_trial_payment у YooKassa
+        (см. YooKassaPaymentMixin в app/services/payment/yookassa.py).
+        """
+        payment_module = import_module('app.services.payment_service')
+
+        subscription_id = metadata.get('subscription_id')
+        if not subscription_id:
+            logger.error(
+                'Отсутствует subscription_id в metadata триального платежа Platega',
+                correlation_id=payment.correlation_id,
+            )
+            await payment_module.update_platega_payment(db, payment=payment, metadata=metadata)
+            return payment
+
+        user = await payment_module.get_user_by_id(db, payment.user_id)
+        if not user:
+            logger.error('Пользователь не найден для триального платежа Platega', user_id=payment.user_id)
+            await payment_module.update_platega_payment(db, payment=payment, metadata=metadata)
+            return payment
+
+        transaction_external_id = payment.platega_transaction_id or payment.correlation_id
+        transaction = await payment_module.get_transaction_by_external_id(
+            db,
+            transaction_external_id,
+            PaymentMethod.PLATEGA,
+        )
+        if not transaction:
+            platega_name = settings.get_platega_display_name()
+            transaction = await payment_module.create_transaction(
+                db,
+                user_id=payment.user_id,
+                type=TransactionType.SUBSCRIPTION_PAYMENT,
+                amount_kopeks=payment.amount_kopeks,
+                description=f'Оплата пробной подписки через {platega_name}',
+                payment_method=PaymentMethod.PLATEGA,
+                external_id=transaction_external_id,
+                is_completed=True,
+                created_at=getattr(payment, 'created_at', None),
+                commit=False,
+            )
+
+        if not getattr(payment, 'transaction_id', None):
+            await payment_module.link_platega_payment_to_transaction(
+                db, payment=payment, transaction_id=transaction.id
+            )
+
+        try:
+            from app.database.crud.subscription import activate_pending_trial_subscription
+
+            subscription = await activate_pending_trial_subscription(
+                db=db,
+                subscription_id=int(subscription_id),
+                user_id=user.id,
+            )
+        except Exception as error:
+            logger.error('Ошибка активации триальной подписки для платежа Platega', error=error, exc_info=True)
+            subscription = None
+
+        # activate_pending_trial_subscription commits internally on success; its
+        # "no pending subscription found" path does not, so commit here too to
+        # make sure the transaction/link created above are persisted either way.
+        await db.commit()
+
+        if not subscription:
+            logger.error(
+                'Не удалось активировать триал по платежу Platega',
+                subscription_id=subscription_id,
+                user_id=user.id,
+            )
+            metadata['trial_activation_failed'] = True
+            await payment_module.update_platega_payment(db, payment=payment, metadata=metadata)
+            return payment
+
+        logger.info(
+            'Триальная подписка активирована по платежу Platega',
+            subscription_id=subscription.id,
+            user_id=user.id,
+        )
+
+        from app.services.subscription_service import SubscriptionService
+
+        subscription_service = SubscriptionService()
+        try:
+            await subscription_service.create_remnawave_user(db, subscription)
+        except Exception as rw_error:
+            logger.error('Ошибка создания RemnaWave для триала (Platega)', rw_error=rw_error)
+            from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+            remnawave_retry_queue.enqueue(
+                subscription_id=subscription.id,
+                user_id=subscription.user_id,
+                action='create',
+            )
+
+        if getattr(self, 'bot', None):
+            try:
+                from app.services.admin_notification_service import AdminNotificationService
+
+                admin_notification_service = AdminNotificationService(self.bot)
+                await admin_notification_service.send_trial_activation_notification(
+                    db,
+                    user,
+                    subscription,
+                    charged_amount_kopeks=payment.amount_kopeks,
+                )
+            except Exception as admin_error:
+                logger.warning('Ошибка уведомления админов о триале (Platega)', admin_error=admin_error)
+
+        if getattr(self, 'bot', None) and user.telegram_id and settings.is_notifications_enabled():
+            try:
+                await self.bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=(
+                        '🎉 <b>Пробная подписка активирована!</b>\n\n'
+                        f'💳 Оплачено: {settings.format_price(payment.amount_kopeks)}\n'
+                        f'📅 Период: {settings.TRIAL_DURATION_DAYS} дней\n'
+                        f'📱 Устройств: {subscription.device_limit}\n\n'
+                        'Используйте меню для подключения к VPN.'
+                    ),
+                    parse_mode='HTML',
+                )
+            except Exception as notify_error:
+                logger.warning('Ошибка уведомления пользователя о триале (Platega)', notify_error=notify_error)
+
+        metadata['trial_activated'] = True
+        await payment_module.update_platega_payment(db, payment=payment, metadata=metadata)
+
+        logger.info(
+            '✅ Обработан триальный Platega платеж для пользователя',
             correlation_id=payment.correlation_id,
             user_id=payment.user_id,
         )

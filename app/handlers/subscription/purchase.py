@@ -4120,6 +4120,11 @@ async def handle_trial_payment_method(callback: types.CallbackQuery, db_user: Us
                 ),
                 language=db_user.language,
                 payment_method_code=method_code,
+                metadata={
+                    'type': 'trial',
+                    'subscription_id': pending_subscription.id,
+                    'user_id': db_user.id,
+                },
             )
 
             if not payment_result or not payment_result.get('redirect_url'):
