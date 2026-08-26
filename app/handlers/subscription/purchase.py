@@ -20,7 +20,10 @@ from app.database.crud.transaction import create_transaction
 from app.database.crud.user import subtract_user_balance
 from app.database.models import PaymentMethod, Subscription, SubscriptionStatus, TransactionType, User
 from app.keyboards.inline import (
+    CARD_ICON_CUSTOM_EMOJI_ID,
     CHAIN_ICON_CUSTOM_EMOJI_ID,
+    CRYPTO_ICON_CUSTOM_EMOJI_ID,
+    SBP_ICON_CUSTOM_EMOJI_ID,
     SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
     get_back_keyboard,
     get_countries_keyboard,
@@ -769,9 +772,36 @@ def _get_trial_payment_keyboard(language: str, can_pay_from_balance: bool = Fals
     if settings.is_wata_enabled():
         keyboard.append([types.InlineKeyboardButton(text='💳 WATA', callback_data='trial_payment_wata')])
 
-    if settings.is_platega_enabled():
+    if settings.is_platega_enabled() and settings.get_platega_active_methods():
         platega_name = settings.get_platega_display_name()
-        keyboard.append([types.InlineKeyboardButton(text=f'💳 {platega_name}', callback_data='trial_payment_platega')])
+        if settings.PLATEGA_INLINE_METHODS:
+            # Тот же выбор СБП/Карта (RUB)/Крипта и те же иконки, что и при
+            # обычном пополнении баланса (см. get_payment_methods_keyboard).
+            platega_icon_by_method = {
+                2: SBP_ICON_CUSTOM_EMOJI_ID,
+                11: CARD_ICON_CUSTOM_EMOJI_ID,
+                13: CRYPTO_ICON_CUSTOM_EMOJI_ID,
+            }
+            for method_code in settings.get_platega_active_methods():
+                icon = platega_icon_by_method.get(method_code)
+                if icon:
+                    text = settings.get_platega_method_display_name(method_code)
+                else:
+                    title = settings.get_platega_method_display_title(method_code)
+                    text = f'{title} ({platega_name})'
+                keyboard.append(
+                    [
+                        types.InlineKeyboardButton(
+                            text=text,
+                            icon_custom_emoji_id=icon,
+                            callback_data=f'trial_payment_platega_m{method_code}',
+                        )
+                    ]
+                )
+        else:
+            keyboard.append(
+                [types.InlineKeyboardButton(text=f'💳 {platega_name}', callback_data='trial_payment_platega')]
+            )
 
     # Кнопка назад
     keyboard.append([types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_trial')])
@@ -4061,15 +4091,25 @@ async def handle_trial_payment_method(callback: types.CallbackQuery, db_user: Us
                 parse_mode='HTML',
             )
 
-        elif payment_method == 'platega':
+        elif payment_method == 'platega' or payment_method.startswith('platega_m'):
             # Оплата через Platega
             active_methods = settings.get_platega_active_methods()
             if not active_methods:
                 await callback.answer('❌ Platega не настроена', show_alert=True)
                 return
 
-            # Используем первый активный метод
-            method_code = active_methods[0]
+            if payment_method == 'platega':
+                # Единственная кнопка (PLATEGA_INLINE_METHODS выключен) — берём первый активный метод.
+                method_code = active_methods[0]
+            else:
+                try:
+                    method_code = int(payment_method[len('platega_m') :])
+                except ValueError:
+                    await callback.answer('❌ Некорректный способ оплаты Platega', show_alert=True)
+                    return
+                if method_code not in active_methods:
+                    await callback.answer('❌ Способ оплаты Platega недоступен', show_alert=True)
+                    return
 
             payment_result = await payment_service.create_platega_payment(
                 db=db,
