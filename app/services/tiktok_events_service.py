@@ -60,11 +60,7 @@ def _get_client() -> httpx.AsyncClient:
 
 
 def _is_enabled() -> bool:
-    return bool(
-        settings.TIKTOK_EVENTS_ENABLED
-        and settings.TIKTOK_PIXEL_CODE
-        and settings.TIKTOK_EVENTS_ACCESS_TOKEN
-    )
+    return bool(settings.TIKTOK_EVENTS_ENABLED and settings.TIKTOK_PIXEL_CODE and settings.TIKTOK_EVENTS_ACCESS_TOKEN)
 
 
 def _normalize_ttclid(ttclid: str | None) -> str | None:

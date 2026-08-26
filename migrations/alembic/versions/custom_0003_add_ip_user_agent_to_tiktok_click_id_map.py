@@ -21,7 +21,7 @@ def upgrade() -> None:
     for column_name, column_type in (('ip', sa.String(64)), ('user_agent', sa.String(512))):
         result = conn.execute(
             sa.text(
-                "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+                'SELECT EXISTS (SELECT 1 FROM information_schema.columns '
                 "WHERE table_name = 'tiktok_click_id_map' AND column_name = :column_name)"
             ),
             {'column_name': column_name},
@@ -35,7 +35,7 @@ def downgrade() -> None:
     for column_name in ('ip', 'user_agent'):
         result = conn.execute(
             sa.text(
-                "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+                'SELECT EXISTS (SELECT 1 FROM information_schema.columns '
                 "WHERE table_name = 'tiktok_click_id_map' AND column_name = :column_name)"
             ),
             {'column_name': column_name},

@@ -180,9 +180,7 @@ async def create_transaction(
             try:
                 from app.services import tiktok_events_service as tiktok_events
 
-                tiktok_events.spawn_bg(
-                    tiktok_events.fire_purchase_bg(user_id, abs(amount_kopeks), transaction.id)
-                )
+                tiktok_events.spawn_bg(tiktok_events.fire_purchase_bg(user_id, abs(amount_kopeks), transaction.id))
             except Exception as exc:
                 logger.debug('Не удалось отправить TikTok purchase для пользователя', user_id=user_id, exc=exc)
 

@@ -478,9 +478,6 @@ def _build_subscriptions_table(subscriptions, texts) -> str:
             if device_limit is not None:
                 # 0 — безлимит (HWID выключен), а не «нет устройств»: строку не прячем
                 usage_parts.append(f'📱 {Texts.format_device_limit(device_limit)}')
-            connect_link = _connect_link(subscription, texts)
-            if connect_link:
-                usage_parts.append(connect_link)
             rows.append(f'<tr><td colspan="3">{" · ".join(usage_parts)}</td></tr>')
         elif actual_status == 'expired':
             renew_link = _renew_link(getattr(subscription, 'id', None), texts)
@@ -540,9 +537,6 @@ async def _build_single_subscription_block(user: User, texts, db: AsyncSession) 
         if device_limit is not None:
             devices_template = texts.t('MAIN_MENU_RICH_DEVICES', '📱 Устройства: {devices}')
             lines.append(_rich_text(devices_template).replace('{devices}', Texts.format_device_limit(device_limit)))
-        connect_link = _connect_link(subscription, texts)
-        if connect_link:
-            lines.append(connect_link)
 
     if actual_status == 'expired':
         renew_link = _renew_link(getattr(subscription, 'id', None), texts)
@@ -565,7 +559,7 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
     username = getattr(user, 'username', None)
     has_name = bool(getattr(user, 'first_name', None) or getattr(user, 'last_name', None))
     user_name = format_username_link(username) if username and not has_name else html.escape(user.full_name or '')
-    blocks.append(f'<h4>👤 {user_name}</h4>')
+    blocks.append(f'<h4><tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user_name}</h4>')
     blocks.append('<hr/>')
 
     if settings.is_multi_tariff_enabled():
@@ -583,17 +577,15 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
             blocks.append(f'<h6>{_rich_text(heading)}</h6>')
             blocks.append(subscription_block)
     else:
-        heading = texts.t('MAIN_MENU_RICH_SUBSCRIPTION_HEADING', '📱 Подписка')
+        heading = texts.t(
+            'MAIN_MENU_RICH_SUBSCRIPTION_HEADING', '<tg-emoji emoji-id="5359719332542718652">💎</tg-emoji> Подписка'
+        )
         blocks.append(f'<h6>{_rich_text(heading)}</h6>')
         blocks.append(await _build_single_subscription_block(user, texts, db))
 
     trial_link = _trial_offer_link(user, texts)
     if trial_link:
         blocks.append(f'<p>{trial_link}</p>')
-
-    balance_template = texts.t('MAIN_MENU_RICH_BALANCE', '💰 Баланс: {balance}')
-    balance_value = f'<b>{html.escape(settings.format_price(user.balance_kopeks))}</b>'
-    blocks.append(f'<p>{_rich_text(balance_template).replace("{balance}", balance_value)}</p>')
 
     hint_sections: list[str] = []
     try:

@@ -20,7 +20,7 @@ def upgrade() -> None:
     conn = op.get_bind()
     result = conn.execute(
         sa.text(
-            "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+            'SELECT EXISTS (SELECT 1 FROM information_schema.columns '
             "WHERE table_name = 'tiktok_click_id_map' AND column_name = 'ttp')"
         )
     )
@@ -32,7 +32,7 @@ def downgrade() -> None:
     conn = op.get_bind()
     result = conn.execute(
         sa.text(
-            "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+            'SELECT EXISTS (SELECT 1 FROM information_schema.columns '
             "WHERE table_name = 'tiktok_click_id_map' AND column_name = 'ttp')"
         )
     )

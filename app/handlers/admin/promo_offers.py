@@ -38,7 +38,7 @@ from app.database.models import (
     User,
     UserStatus,
 )
-from app.keyboards.inline import get_happ_download_button_row
+from app.keyboards.inline import CHAIN_ICON_CUSTOM_EMOJI_ID, get_happ_download_button_row
 from app.localization.texts import get_texts
 from app.services.user_service import UserService
 from app.states import AdminStates
@@ -325,7 +325,11 @@ def _format_promo_offer_log_entry(
     else:
         label = texts.get('ADMIN_PROMO_OFFER_LOGS_UNKNOWN_USER', 'Неизвестный пользователь')
 
-    lines.append(texts.get('ADMIN_PROMO_OFFER_LOGS_USER', '👤 {user}').format(user=html.escape(label)))
+    lines.append(
+        texts.get(
+            'ADMIN_PROMO_OFFER_LOGS_USER', '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {user}'
+        ).format(user=html.escape(label))
+    )
 
     if entry.percent:
         lines.append(texts.get('ADMIN_PROMO_OFFER_LOGS_PERCENT', '📉 Скидка: {percent}%').format(percent=entry.percent))
@@ -531,7 +535,10 @@ async def _render_send_user_list(
     users: Sequence[User] = result.get('users', [])
 
     lines = [
-        texts.t('ADMIN_PROMO_OFFER_SEND_USER_TITLE', '👤 <b>Отправка пользователю</b>'),
+        texts.t(
+            'ADMIN_PROMO_OFFER_SEND_USER_TITLE',
+            '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <b>Отправка пользователю</b>',
+        ),
         '',
         texts.t(
             'ADMIN_PROMO_OFFER_SEND_USER_HINT',
@@ -1445,7 +1452,10 @@ async def show_selected_user_details(
     balance = getattr(user, 'balance_kopeks', 0)
 
     lines = [
-        texts.t('ADMIN_PROMO_OFFER_SEND_USER_PROFILE', '👤 <b>{name}</b>').format(name=name),
+        texts.t(
+            'ADMIN_PROMO_OFFER_SEND_USER_PROFILE',
+            '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <b>{name}</b>',
+        ).format(name=name),
         texts.t('ADMIN_PROMO_OFFER_SEND_USER_TELEGRAM', '🆔 <code>{telegram_id}</code>').format(
             telegram_id=user.telegram_id or '—'
         ),
@@ -1907,12 +1917,14 @@ def _build_connect_button_rows(user: User, texts) -> list[list[InlineKeyboardBut
     if not subscription:
         return []
 
-    button_text = texts.t('CONNECT_BUTTON', '🔗 Подключиться')
+    button_text = texts.t('CONNECT_BUTTON', 'Подключиться')
     subscription_link = get_display_subscription_link(subscription)
     connect_mode = settings.CONNECT_BUTTON_MODE
 
     def _fallback_button() -> InlineKeyboardButton:
-        return InlineKeyboardButton(text=button_text, callback_data='subscription_connect')
+        return InlineKeyboardButton(
+            text=button_text, icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID, callback_data='subscription_connect'
+        )
 
     rows: list[list[InlineKeyboardButton]] = []
 
@@ -1922,6 +1934,7 @@ def _build_connect_button_rows(user: User, texts) -> list[list[InlineKeyboardBut
                 [
                     InlineKeyboardButton(
                         text=button_text,
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=subscription_link),
                     )
                 ]
@@ -1934,6 +1947,7 @@ def _build_connect_button_rows(user: User, texts) -> list[list[InlineKeyboardBut
                 [
                     InlineKeyboardButton(
                         text=button_text,
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=settings.MINIAPP_CUSTOM_URL),
                     )
                 ]
@@ -1942,12 +1956,26 @@ def _build_connect_button_rows(user: User, texts) -> list[list[InlineKeyboardBut
             rows.append([_fallback_button()])
     elif connect_mode == 'link':
         if subscription_link:
-            rows.append([InlineKeyboardButton(text=button_text, url=subscription_link)])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=button_text, icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID, url=subscription_link
+                    )
+                ]
+            )
         else:
             rows.append([_fallback_button()])
     elif connect_mode == 'happ_cryptolink':
         if subscription_link:
-            rows.append([InlineKeyboardButton(text=button_text, callback_data='open_subscription_link')])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=button_text,
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                        callback_data='open_subscription_link',
+                    )
+                ]
+            )
         else:
             rows.append([_fallback_button()])
     else:

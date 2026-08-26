@@ -54,6 +54,7 @@ from app.external.remnawave_api import (
     RemnaWaveUser,
     is_user_not_found_error,
 )
+from app.keyboards.inline import SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID
 from app.localization.texts import get_texts
 from app.services.autopay_period import resolve_autopay_period_candidate
 from app.services.grace_access_runtime import update_panel_user_grace_safe
@@ -2160,7 +2161,13 @@ class MonitoringService:
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [build_miniapp_or_callback_button(text='💎 Купить подписку', callback_data='menu_buy')],
+                    [
+                        build_miniapp_or_callback_button(
+                            text='Купить подписку',
+                            icon_custom_emoji_id=SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
+                            callback_data='menu_buy',
+                        )
+                    ],
                     [build_miniapp_or_callback_button(text='💰 Пополнить баланс', callback_data='balance_topup')],
                 ]
             )
@@ -3308,7 +3315,7 @@ class MonitoringService:
                     text = (
                         f'⏰ <b>Ожидание ответа на тикет превышено</b>\n\n'
                         f'🆔 <b>ID:</b> <code>{ticket.id}</code>\n'
-                        f'👤 <b>Пользователь:</b> {full_name}\n'
+                        f'<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <b>Пользователь:</b> {full_name}\n'
                         f'🆔 <b>Telegram ID:</b> <code>{telegram_id_display}</code>\n'
                         f'📱 <b>Username:</b> {username_display}\n'
                         f'📝 <b>Заголовок:</b> {safe_title}\n'

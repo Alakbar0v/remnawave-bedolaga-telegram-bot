@@ -42,7 +42,7 @@ _DYNAMIC_LANGUAGE_CONFIGS = {
         'support_info': (
             '\n🛟 <b>پشتیبانی</b>\n\n'
             'برای هرگونه سؤال به پشتیبانی پیام دهید:\n\n'
-            '👤 {support_username}\n\n'
+            '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {support_username}\n\n'
             '• 🎫 ایجاد تیکت\n'
             '• 📋 تیکت‌های من\n'
             '• 💬 تماس مستقیم\n'
@@ -66,7 +66,7 @@ _DYNAMIC_LANGUAGE_CONFIGS = {
         'support_info': (
             '\n🛠️ <b>Технічна підтримка</b>\n\n'
             'З усіх питань звертайтеся до нашої підтримки:\n\n'
-            '👤 {support_username}\n\n'
+            '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {support_username}\n\n'
             'Ми допоможемо з:\n'
             '• Налаштуванням підключення\n'
             '• Вирішенням технічних проблем\n'
@@ -81,7 +81,7 @@ _DYNAMIC_LANGUAGE_CONFIGS = {
         'support_info': (
             '\n🛠️ <b>技术支持</b>\n\n'
             '如有任何问题，请联系我们的支持团队：\n\n'
-            '👤 {support_username}\n\n'
+            '<tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> {support_username}\n\n'
             '我们将帮助您：\n'
             '• 设置连接\n'
             '• 解决技术问题\n'

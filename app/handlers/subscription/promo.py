@@ -12,6 +12,7 @@ from app.database.crud.discount_offer import (
 )
 from app.database.crud.promo_offer_template import get_promo_offer_template_by_id
 from app.database.models import User
+from app.keyboards.inline import SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID
 from app.localization.texts import get_texts
 from app.services.promo_offer_service import promo_offer_service
 from app.utils.miniapp_buttons import build_miniapp_or_callback_button
@@ -348,9 +349,11 @@ async def claim_discount_offer(
     if offer_type == 'purchase_discount':
         button_text = texts.get('MENU_BUY_SUBSCRIPTION', '💎 Купить подписку')
         button_callback = 'subscription_upgrade'
+        button_icon = SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID
     elif offer_type == 'extend_discount':
         button_text = texts.get('SUBSCRIPTION_EXTEND', '💎 Продлить подписку')
         button_callback = 'subscription_extend'
+        button_icon = None
     else:
         has_active_paid_subscription = bool(
             subscription and getattr(subscription, 'is_active', False) and not getattr(subscription, 'is_trial', False)
@@ -359,9 +362,11 @@ async def claim_discount_offer(
         if has_active_paid_subscription:
             button_text = texts.get('SUBSCRIPTION_EXTEND', '💎 Продлить подписку')
             button_callback = 'subscription_extend'
+            button_icon = None
         else:
             button_text = texts.get('MENU_BUY_SUBSCRIPTION', '💎 Купить подписку')
             button_callback = 'subscription_upgrade'
+            button_icon = SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID
 
     buy_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -369,6 +374,7 @@ async def claim_discount_offer(
                 build_miniapp_or_callback_button(
                     text=button_text,
                     callback_data=button_callback,
+                    icon_custom_emoji_id=button_icon,
                 )
             ]
         ]

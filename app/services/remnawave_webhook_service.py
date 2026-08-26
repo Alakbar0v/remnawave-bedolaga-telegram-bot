@@ -37,6 +37,7 @@ from app.database.crud.subscription import (
 from app.database.crud.user import get_user_by_id, get_user_by_remnawave_id, get_user_by_telegram_id
 from app.database.models import Subscription, SubscriptionServer, SubscriptionStatus, User
 from app.external.remnawave_api import RemnaWaveAPIError, RemnaWaveInvalidUserIdError
+from app.keyboards.inline import CHAIN_ICON_CUSTOM_EMOJI_ID
 from app.localization.texts import get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.grace_access_runtime import get_open_grace_subscription_ids, grace_access_runtime
@@ -1004,7 +1005,13 @@ class RemnaWaveWebhookService:
         button_text = texts.get('CONNECT_BUTTON', 'Connect')
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [build_miniapp_or_callback_button(text=button_text, callback_data='subscription_connect')],
+                [
+                    build_miniapp_or_callback_button(
+                        text=button_text,
+                        callback_data='subscription_connect',
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                    )
+                ],
             ]
         )
 
