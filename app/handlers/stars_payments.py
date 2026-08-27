@@ -238,6 +238,8 @@ async def _handle_trial_payment(
     texts,
 ):
     """Обработка Stars платежа для платного триала."""
+    from sqlalchemy.exc import IntegrityError
+
     from app.database.crud.subscription import activate_pending_trial_subscription
     from app.database.crud.transaction import create_transaction
     from app.database.models import PaymentMethod, TransactionType
@@ -268,16 +270,29 @@ async def _handle_trial_payment(
         amount_kopeks = int((rubles_amount * Decimal(100)).to_integral_value(rounding=ROUND_HALF_UP))
 
         # Создаём транзакцию
-        await create_transaction(
-            db=db,
-            user_id=user.id,
-            type=TransactionType.SUBSCRIPTION_PAYMENT,
-            amount_kopeks=amount_kopeks,
-            description=f'Оплата пробной подписки через Telegram Stars ({stars_amount} ⭐)',
-            payment_method=PaymentMethod.TELEGRAM_STARS,
-            external_id=f'trial_stars_{subscription_id}',
-            is_completed=True,
-        )
+        try:
+            await create_transaction(
+                db=db,
+                user_id=user.id,
+                type=TransactionType.SUBSCRIPTION_PAYMENT,
+                amount_kopeks=amount_kopeks,
+                description=f'Оплата пробной подписки через Telegram Stars ({stars_amount} ⭐)',
+                payment_method=PaymentMethod.TELEGRAM_STARS,
+                external_id=f'trial_stars_{subscription_id}',
+                is_completed=True,
+            )
+        except IntegrityError:
+            # A duplicate webhook redelivery raced us to the same external_id.
+            # The trial was already fully processed by the first delivery, so
+            # activate_pending_trial_subscription would find no PENDING row here
+            # and wrongly trigger the balance-refund path below — skip idempotently instead.
+            await db.rollback()
+            logger.info(
+                'Дубликат Stars-платежа за триал (идемпотентный пропуск)',
+                user_id=user.id,
+                subscription_id=subscription_id,
+            )
+            return True
 
         # Активируем pending триальную подписку
         subscription = await activate_pending_trial_subscription(
