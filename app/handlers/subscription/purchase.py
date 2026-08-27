@@ -4160,9 +4160,27 @@ async def handle_trial_payment_method(callback: types.CallbackQuery, db_user: Us
 
         await callback.answer()
 
+    except TelegramBadRequest as error:
+        error_message = str(error).lower()
+        if 'query is too old' in error_message or 'query id is invalid' in error_message:
+            # Платёж/заказ уже успешно создан выше — просто не успели закрыть спиннер
+            # кнопки до истечения времени жизни callback query. Не ошибка обработки.
+            logger.warning(
+                'Устаревший callback при выборе способа оплаты триала', payment_method=payment_method
+            )
+            return
+        logger.error('Error processing trial payment method', payment_method=payment_method, error=error)
+        try:
+            await callback.answer('❌ Произошла ошибка при создании платежа. Попробуйте позже.', show_alert=True)
+        except TelegramBadRequest:
+            pass
+
     except Exception as error:
         logger.error('Error processing trial payment method', payment_method=payment_method, error=error)
-        await callback.answer('❌ Произошла ошибка при создании платежа. Попробуйте позже.', show_alert=True)
+        try:
+            await callback.answer('❌ Произошла ошибка при создании платежа. Попробуйте позже.', show_alert=True)
+        except TelegramBadRequest:
+            pass
 
 
 def register_handlers(dp: Dispatcher):
