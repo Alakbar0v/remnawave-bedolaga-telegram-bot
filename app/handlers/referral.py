@@ -123,8 +123,9 @@ async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: A
         texts.t('REFERRAL_BOT_LINK_TITLE', '🤖 <b>Ссылка на бота:</b>') + f'\n{html_escape(bot_referral_link)}\n'
     )
 
-    # Show cabinet link if configured
-    if cabinet_referral_link:
+    # Show cabinet link if configured (hidden for ru/en — cabinet link is not
+    # promoted to those users on this screen)
+    if cabinet_referral_link and db_user.language not in ('ru', 'en'):
         referral_text += (
             '\n'
             + texts.t('REFERRAL_CABINET_LINK_TITLE', '🌐 <b>Ссылка на кабинет:</b>')
@@ -280,7 +281,7 @@ async def show_referral_qr(
     ).format(link=bot_referral_link)
 
     cabinet_referral_link = settings.get_cabinet_referral_link(db_user.referral_code)
-    if cabinet_referral_link:
+    if cabinet_referral_link and db_user.language not in ('ru', 'en'):
         caption += '\n\n' + texts.t(
             'REFERRAL_QR_CABINET_LINK',
             '🌐 Ссылка на кабинет:\n{link}',
@@ -522,7 +523,7 @@ async def create_invite_message(callback: types.CallbackQuery, db_user: User):
     # (#634720). Экранируем прозу сами и подставляем ссылки уже в <code>, а не
     # html_escape-им всю собранную строку (иначе экранировались бы и теги <code>).
     cabinet_block = ''
-    if cabinet_referral_link:
+    if cabinet_referral_link and db_user.language not in ('ru', 'en'):
         cabinet_block = f'\n\n🌐 <code>{html_escape(cabinet_referral_link)}</code>'
 
     invite_template = texts.t(

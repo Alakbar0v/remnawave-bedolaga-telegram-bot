@@ -28,7 +28,9 @@ async def test_create_invite_message_wraps_links_in_code(monkeypatch):
     )
     monkeypatch.setattr(ref.settings, 'REFERRAL_FIRST_TOPUP_BONUS_KOPEKS', 0)
 
-    db_user = SimpleNamespace(referral_code='X', language='ru')
+    # Cabinet link is hidden for ru/en (see test below) — use another language
+    # here so this test still covers the <code>-wrapping behavior for it.
+    db_user = SimpleNamespace(referral_code='X', language='ua')
     bot = MagicMock()
     bot.get_me = AsyncMock(return_value=SimpleNamespace(username='bot'))
     callback = MagicMock()
@@ -45,3 +47,35 @@ async def test_create_invite_message_wraps_links_in_code(monkeypatch):
     assert '&lt;code&gt;' not in html
     # Still rendered inside the copyable quote.
     assert '<blockquote>' in html and '</blockquote>' in html
+
+
+async def test_create_invite_message_hides_cabinet_link_for_ru_en(monkeypatch):
+    """Cabinet link is not promoted to ru/en users on this screen — only the
+    bot link is shown/copyable for them."""
+    captured = {}
+
+    async def fake_edit(callback, text, keyboard):
+        captured['text'] = text
+
+    monkeypatch.setattr(ref, 'edit_or_answer_photo', fake_edit)
+    monkeypatch.setattr(
+        type(ref.settings), 'get_bot_referral_link', lambda self, code, bot: 'https://t.me/bot?start=ref_X'
+    )
+    monkeypatch.setattr(
+        type(ref.settings), 'get_cabinet_referral_link', lambda self, code: 'https://cab.example/?ref=X&u=1'
+    )
+    monkeypatch.setattr(ref.settings, 'REFERRAL_FIRST_TOPUP_BONUS_KOPEKS', 0)
+
+    for language in ('ru', 'en'):
+        db_user = SimpleNamespace(referral_code='X', language=language)
+        bot = MagicMock()
+        bot.get_me = AsyncMock(return_value=SimpleNamespace(username='bot'))
+        callback = MagicMock()
+        callback.bot = bot
+        callback.answer = AsyncMock()
+
+        await ref.create_invite_message(callback, db_user)
+
+        html = captured['text']
+        assert '<code>https://t.me/bot?start=ref_X</code>' in html
+        assert 'cab.example' not in html
