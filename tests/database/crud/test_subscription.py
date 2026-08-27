@@ -265,6 +265,10 @@ def test_is_trial_already_used_gate():
     # не платил, PENDING-триал (повторная попытка оплаты) → можно
     pending_trial = Subscription(status=SubscriptionStatus.PENDING.value, is_trial=True)
     assert _user(False, pending_trial).is_trial_already_used() is False
+    # не платил, брошенный PENDING-черновик обычной покупки (Platega/CryptoBot,
+    # дошёл до оплаты и не заплатил) → триал не блокируется
+    pending_regular = Subscription(status=SubscriptionStatus.PENDING.value, is_trial=False)
+    assert _user(False, pending_regular).is_trial_already_used() is False
 
 
 def test_subscription_property_ignores_pending_trial_draft():

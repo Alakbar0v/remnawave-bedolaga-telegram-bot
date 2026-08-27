@@ -2147,13 +2147,18 @@ class User(Base):
 
         Раньше проверка дублировалась 4× в боте (purchase.py) и 2× в кабинете, причём
         с разной логикой. Триал недоступен, если пользователь уже оплачивал подписку
-        ЛИБО у него есть ЛЮБАЯ подписка — кроме PENDING-триала (это повторная попытка
-        оплаты того же триала). Проверяются ВСЕ подписки (multi-tariff-safe). Требует
-        загруженного `subscriptions`.
+        ЛИБО у него есть ЛЮБАЯ подписка в «живом» статусе (PENDING не считается —
+        это неоплаченный черновик, будь то повторная попытка оплаты триала ИЛИ
+        брошенный черновик обычной покупки через Platega/CryptoBot и т.п.: пользователь
+        дошёл до экрана оплаты, но не заплатил, и это не должно сжигать ему триал
+        навсегда). Проверяются ВСЕ подписки (multi-tariff-safe). Требует загруженного
+        `subscriptions`.
         """
         if self.has_had_paid_subscription:
             return True
-        return any(not sub.is_pending_trial for sub in (self.subscriptions or []))
+        return any(
+            sub.status != SubscriptionStatus.PENDING.value for sub in (self.subscriptions or [])
+        )
 
     transactions = relationship('Transaction', back_populates='user')
     referral_earnings = relationship('ReferralEarning', foreign_keys='ReferralEarning.user_id', back_populates='user')
