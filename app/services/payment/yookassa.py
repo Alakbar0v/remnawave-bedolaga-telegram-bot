@@ -694,10 +694,10 @@ class YooKassaPaymentMixin:
                                     try:
                                         admin_notification_service = AdminNotificationService(self.bot)
                                         await admin_notification_service.send_trial_activation_notification(
-                                            user=user,
-                                            subscription=subscription,
-                                            paid_amount=payment.amount_kopeks,
-                                            payment_method='YooKassa',
+                                            db,
+                                            user,
+                                            subscription,
+                                            charged_amount_kopeks=payment.amount_kopeks,
                                         )
                                     except Exception as admin_error:
                                         logger.warning('Ошибка уведомления админов о триале', admin_error=admin_error)

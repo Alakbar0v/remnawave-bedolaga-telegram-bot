@@ -345,10 +345,10 @@ async def _handle_trial_payment(
         try:
             admin_notification_service = AdminNotificationService(message.bot)
             await admin_notification_service.send_trial_activation_notification(
-                user=user,
-                subscription=subscription,
-                paid_amount=amount_kopeks,
-                payment_method='Telegram Stars',
+                db,
+                user,
+                subscription,
+                charged_amount_kopeks=amount_kopeks,
             )
         except Exception as admin_error:
             logger.warning('Ошибка отправки уведомления админам о триале', admin_error=admin_error)
