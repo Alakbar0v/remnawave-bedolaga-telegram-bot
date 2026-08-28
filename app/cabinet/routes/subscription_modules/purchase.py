@@ -1463,6 +1463,7 @@ async def activate_trial(
             amount_kopeks=price_kopeks,
             description=trial_description,
             payment_method=PaymentMethod.BALANCE,
+            is_trial_payment=True,
         )
 
         logger.info('User paid kopeks for trial activation', user_id=user.id, price_kopeks=price_kopeks)
@@ -1589,8 +1590,9 @@ async def activate_trial(
 
         # 'trial-add' event still fires here. The paid-trial 'purchase' event is
         # NOT fired here anymore: when a trial activation fee is charged it
-        # creates a SUBSCRIPTION_PAYMENT transaction, which fires the purchase
-        # event centrally from create_transaction (avoids double-fire).
+        # creates a SUBSCRIPTION_PAYMENT transaction, which is tagged
+        # is_trial_payment=True and no longer fires a purchase event centrally
+        # (see create_transaction/emit_transaction_side_effects).
         await yandex_conv.store_cid_and_fire_trial(user.id, cabinet_cid)
     except Exception as yconv_err:
         logger.debug(
@@ -1598,5 +1600,12 @@ async def activate_trial(
             user_id=user.id,
             error=str(yconv_err),
         )
+
+    try:
+        from app.services import tiktok_events_service as tiktok_events
+
+        tiktok_events.spawn_bg(tiktok_events.fire_trial_bg(user.id))
+    except Exception as exc:
+        logger.debug('Не удалось отправить TikTok trial событие для пользователя', user_id=user.id, exc=exc)
 
     return _subscription_to_response(subscription, user=user)

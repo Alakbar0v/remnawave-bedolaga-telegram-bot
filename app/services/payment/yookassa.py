@@ -689,6 +689,28 @@ class YooKassaPaymentMixin:
                                         action='create',
                                     )
 
+                                try:
+                                    from app.services import tiktok_events_service as tiktok_events
+
+                                    tiktok_events.spawn_bg(tiktok_events.fire_trial_bg(user.id))
+                                except Exception as exc:
+                                    logger.debug(
+                                        'Не удалось отправить TikTok trial событие для пользователя',
+                                        user_id=user.id,
+                                        exc=exc,
+                                    )
+
+                                try:
+                                    from app.services import yandex_offline_conv_service as yandex_conv
+
+                                    yandex_conv.spawn_bg(yandex_conv.fire_trial_bg(user.id))
+                                except Exception as exc:
+                                    logger.debug(
+                                        'Не удалось отправить Yandex trial событие для пользователя',
+                                        user_id=user.id,
+                                        exc=exc,
+                                    )
+
                                 # Уведомление админам
                                 if getattr(self, 'bot', None):
                                     try:
@@ -866,6 +888,7 @@ class YooKassaPaymentMixin:
                             type=transaction_type,
                             payment_method=PaymentMethod.YOOKASSA,
                             external_id=payment.yookassa_payment_id,
+                            is_trial_payment=is_trial_payment,
                         )
                     except Exception as error:
                         logger.warning('Failed to emit YooKassa transaction side effects', error=error)

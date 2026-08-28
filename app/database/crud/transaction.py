@@ -75,6 +75,7 @@ async def create_transaction(
     created_at: datetime | None = None,
     *,
     commit: bool = True,
+    is_trial_payment: bool = False,
 ) -> Transaction:
     # SUBSCRIPTION_PAYMENT / GIFT_PAYMENT — always store as negative (debit from user balance)
     # Keep original for downstream consumers (events, contests)
@@ -165,24 +166,32 @@ async def create_transaction(
             # passes through here, so the purchase event fires exactly once per
             # paid purchase. Background task with its own DB session; no-ops when
             # the service is disabled or no CID is stored.
-            try:
-                from app.services import yandex_offline_conv_service as yandex_conv
+            #
+            # is_trial_payment charges (paid trial activation) are excluded: they
+            # represent a trial-start, not a subscription purchase, and are
+            # reported separately via StartTrial/trial-add fired right after
+            # provisioning succeeds (see fire_trial_bg / store_cid_and_fire_trial
+            # call sites) — not from here, to avoid firing before provisioning is
+            # confirmed.
+            if not is_trial_payment:
+                try:
+                    from app.services import yandex_offline_conv_service as yandex_conv
 
-                yandex_conv.spawn_bg(yandex_conv.fire_purchase_bg(user_id, abs(amount_kopeks)))
-            except Exception as exc:
-                logger.debug('Не удалось отправить Yandex purchase для пользователя', user_id=user_id, exc=exc)
+                    yandex_conv.spawn_bg(yandex_conv.fire_purchase_bg(user_id, abs(amount_kopeks)))
+                except Exception as exc:
+                    logger.debug('Не удалось отправить Yandex purchase для пользователя', user_id=user_id, exc=exc)
 
-            # TikTok Events API — same central chokepoint, mirrors the Yandex hook
-            # above. Background task with its own DB session; no-ops when disabled
-            # or no ttclid is stored.
-            try:
-                from app.services import tiktok_events_service as tiktok_events
+                # TikTok Events API — same central chokepoint, mirrors the Yandex hook
+                # above. Background task with its own DB session; no-ops when disabled
+                # or no ttclid is stored.
+                try:
+                    from app.services import tiktok_events_service as tiktok_events
 
-                tiktok_events.spawn_bg(
-                    tiktok_events.fire_purchase_bg(user_id, abs(amount_kopeks), transaction.id)
-                )
-            except Exception as exc:
-                logger.debug('Не удалось отправить TikTok purchase для пользователя', user_id=user_id, exc=exc)
+                    tiktok_events.spawn_bg(
+                        tiktok_events.fire_purchase_bg(user_id, abs(amount_kopeks), transaction.id)
+                    )
+                except Exception as exc:
+                    logger.debug('Не удалось отправить TikTok purchase для пользователя', user_id=user_id, exc=exc)
 
     return transaction
 
@@ -198,6 +207,7 @@ async def emit_transaction_side_effects(
     external_id: str | None = None,
     is_completed: bool = True,
     description: str = '',
+    is_trial_payment: bool = False,
 ) -> None:
     """Fire side-effects that were deferred when create_transaction(commit=False) was used.
 
@@ -249,21 +259,25 @@ async def emit_transaction_side_effects(
         # for create_transaction(commit=False) callers). Fires the purchase event
         # exactly once per completed SUBSCRIPTION_PAYMENT. Background task with
         # its own DB session; no-ops when disabled or no CID stored.
-        try:
-            from app.services import yandex_offline_conv_service as yandex_conv
+        #
+        # is_trial_payment charges are excluded — see the matching comment in
+        # create_transaction() above.
+        if not is_trial_payment:
+            try:
+                from app.services import yandex_offline_conv_service as yandex_conv
 
-            yandex_conv.spawn_bg(yandex_conv.fire_purchase_bg(user_id, abs(amount_kopeks)))
-        except Exception as exc:
-            logger.debug('Не удалось отправить Yandex purchase для пользователя', user_id=user_id, exc=exc)
+                yandex_conv.spawn_bg(yandex_conv.fire_purchase_bg(user_id, abs(amount_kopeks)))
+            except Exception as exc:
+                logger.debug('Не удалось отправить Yandex purchase для пользователя', user_id=user_id, exc=exc)
 
-        # TikTok Events API — same central chokepoint (deferred path), mirrors
-        # the Yandex hook above.
-        try:
-            from app.services import tiktok_events_service as tiktok_events
+            # TikTok Events API — same central chokepoint (deferred path), mirrors
+            # the Yandex hook above.
+            try:
+                from app.services import tiktok_events_service as tiktok_events
 
-            tiktok_events.spawn_bg(tiktok_events.fire_purchase_bg(user_id, abs(amount_kopeks), transaction.id))
-        except Exception as exc:
-            logger.debug('Не удалось отправить TikTok purchase для пользователя', user_id=user_id, exc=exc)
+                tiktok_events.spawn_bg(tiktok_events.fire_purchase_bg(user_id, abs(amount_kopeks), transaction.id))
+            except Exception as exc:
+                logger.debug('Не удалось отправить TikTok purchase для пользователя', user_id=user_id, exc=exc)
 
 
 async def get_transaction_by_id(db: AsyncSession, transaction_id: int) -> Transaction | None:

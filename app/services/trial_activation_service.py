@@ -103,6 +103,7 @@ async def charge_trial_activation_if_required(
         amount_kopeks=price_kopeks,
         description=charge_description,
         payment_method=PaymentMethod.BALANCE,
+        is_trial_payment=True,
     )
 
     return int(price_kopeks)

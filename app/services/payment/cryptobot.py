@@ -485,6 +485,7 @@ class CryptoBotPaymentMixin:
             is_completed=True,
             created_at=getattr(payment, 'created_at', None),
             commit=False,
+            is_trial_payment=True,
         )
 
         await cryptobot_crud.link_cryptobot_payment_to_transaction(db, payment.invoice_id, transaction.id)
@@ -511,6 +512,25 @@ class CryptoBotPaymentMixin:
         # "no pending subscription found" path does not, so commit here too to
         # make sure the transaction/link created above are persisted either way.
         await db.commit()
+
+        # Deferred side-effects for create_transaction(commit=False) above —
+        # previously missing entirely here, so trial payments never reached
+        # the referral contest / promo group checks.
+        try:
+            from app.database.crud.transaction import emit_transaction_side_effects
+
+            await emit_transaction_side_effects(
+                db,
+                transaction,
+                amount_kopeks=amount_kopeks,
+                user_id=payment.user_id,
+                type=TransactionType.SUBSCRIPTION_PAYMENT,
+                payment_method=PaymentMethod.CRYPTOBOT,
+                external_id=payment.invoice_id,
+                is_trial_payment=True,
+            )
+        except Exception as error:
+            logger.warning('Failed to emit CryptoBot trial transaction side effects', error=error)
 
         if not subscription:
             logger.error(
@@ -540,6 +560,20 @@ class CryptoBotPaymentMixin:
                 user_id=subscription.user_id,
                 action='create',
             )
+
+        try:
+            from app.services import tiktok_events_service as tiktok_events
+
+            tiktok_events.spawn_bg(tiktok_events.fire_trial_bg(user.id))
+        except Exception as exc:
+            logger.debug('Не удалось отправить TikTok trial событие для пользователя', user_id=user.id, exc=exc)
+
+        try:
+            from app.services import yandex_offline_conv_service as yandex_conv
+
+            yandex_conv.spawn_bg(yandex_conv.fire_trial_bg(user.id))
+        except Exception as exc:
+            logger.debug('Не удалось отправить Yandex trial событие для пользователя', user_id=user.id, exc=exc)
 
         if getattr(self, 'bot', None):
             try:
