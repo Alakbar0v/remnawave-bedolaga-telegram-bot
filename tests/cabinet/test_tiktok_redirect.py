@@ -25,8 +25,9 @@ from app.cabinet.routes import tiktok_redirect as tiktok_redirect_module
 from app.cabinet.routes.tiktok_redirect import tiktok_redirect, tiktok_redirect_json
 
 
-def _fake_request(ip: str = '203.0.113.5') -> SimpleNamespace:
-    return SimpleNamespace(client=SimpleNamespace(host=ip), headers={})
+def _fake_request(ip: str = '203.0.113.5', user_agent: str = '') -> SimpleNamespace:
+    headers = {'user-agent': user_agent} if user_agent else {}
+    return SimpleNamespace(client=SimpleNamespace(host=ip), headers=headers)
 
 
 def test_route_registered(registered_paths):
@@ -53,7 +54,34 @@ async def test_redirect_with_campaign_builds_expected_start_param():
     assert response.headers['location'] == 'tg://resolve?domain=mybot&start=tiktok1_subid_tt_shorttok1234'
     cache_set_mock.assert_awaited_once_with(
         'ttclid:token:shorttok1234',
-        json.dumps({'ttclid': 'ttclid.abcXYZ123', 'ttp': None}),
+        json.dumps({'ttclid': 'ttclid.abcXYZ123', 'ttp': None, 'ip': '203.0.113.5', 'user_agent': None}),
+        expire=86400,
+    )
+
+
+@pytest.mark.asyncio
+async def test_redirect_captures_client_ip_and_user_agent():
+    """IP/UA of the actual ad click must ride along in the cached token blob so
+    TikTok Events API's `user.ip` / `user.user_agent` match fields get set."""
+    with (
+        patch.object(tiktok_redirect_module.RateLimitCache, 'is_ip_rate_limited', AsyncMock(return_value=False)),
+        patch.object(tiktok_redirect_module.settings, 'BOT_USERNAME', 'mybot'),
+        patch.object(tiktok_redirect_module.cache, 'set', AsyncMock(return_value=True)) as cache_set_mock,
+        patch.object(tiktok_redirect_module.secrets, 'token_urlsafe', return_value='shorttok1234'),
+    ):
+        response = await tiktok_redirect(
+            _fake_request(ip='198.51.100.7', user_agent='Mozilla/5.0 (iPhone)'),
+            ttclid='ttclid.abcXYZ123',
+            campaign='tiktok1',
+            ttp=None,
+        )
+
+    assert response.status_code == 302
+    cache_set_mock.assert_awaited_once_with(
+        'ttclid:token:shorttok1234',
+        json.dumps(
+            {'ttclid': 'ttclid.abcXYZ123', 'ttp': None, 'ip': '198.51.100.7', 'user_agent': 'Mozilla/5.0 (iPhone)'}
+        ),
         expire=86400,
     )
 
@@ -73,7 +101,9 @@ async def test_redirect_caches_ttp_alongside_ttclid():
     assert response.status_code == 302
     cache_set_mock.assert_awaited_once_with(
         'ttclid:token:shorttok1234',
-        json.dumps({'ttclid': 'ttclid.abcXYZ123', 'ttp': 'ttp.cookie456'}),
+        json.dumps(
+            {'ttclid': 'ttclid.abcXYZ123', 'ttp': 'ttp.cookie456', 'ip': '203.0.113.5', 'user_agent': None}
+        ),
         expire=86400,
     )
 
@@ -95,7 +125,7 @@ async def test_json_variant_returns_same_deep_link_as_redirect():
     assert result == {'url': 'tg://resolve?domain=mybot&start=tiktok1_subid_tt_shorttok1234'}
     cache_set_mock.assert_awaited_once_with(
         'ttclid:token:shorttok1234',
-        json.dumps({'ttclid': 'ttclid.abcXYZ123', 'ttp': None}),
+        json.dumps({'ttclid': 'ttclid.abcXYZ123', 'ttp': None, 'ip': '203.0.113.5', 'user_agent': None}),
         expire=86400,
     )
 

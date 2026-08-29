@@ -83,6 +83,31 @@ def test_event_payload_omits_ttp_when_invalid() -> None:
     assert 'ttp' not in payload['data'][0]['user']
 
 
+def test_event_payload_includes_ip_and_user_agent_when_given() -> None:
+    with patch.object(tiktok_events.settings, 'TIKTOK_PIXEL_CODE', 'pixel123'):
+        payload = tiktok_events._event_payload(
+            'ttclid.abc123',
+            tiktok_events.EVENT_REGISTRATION,
+            'CompleteRegistration_42',
+            42,
+            ip='203.0.113.5',
+            user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+        )
+
+    user = payload['data'][0]['user']
+    assert user['ip'] == '203.0.113.5'
+    assert user['user_agent'] == 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)'
+
+
+def test_event_payload_omits_ip_when_invalid() -> None:
+    with patch.object(tiktok_events.settings, 'TIKTOK_PIXEL_CODE', 'pixel123'):
+        payload = tiktok_events._event_payload(
+            'ttclid.abc123', tiktok_events.EVENT_REGISTRATION, 'CompleteRegistration_42', 42, ip='not-an-ip'
+        )
+
+    assert 'ip' not in payload['data'][0]['user']
+
+
 def test_purchase_payload_includes_value_and_currency() -> None:
     with (
         patch.object(tiktok_events.settings, 'TIKTOK_PIXEL_CODE', 'pixel123'),
@@ -213,7 +238,7 @@ async def test_store_ttclid_only_noop_when_disabled() -> None:
 
 @pytest.mark.asyncio
 async def test_on_registration_skips_when_already_sent() -> None:
-    row = SimpleNamespace(ttclid='ttclid.abc123', ttp=None, registration_sent=True)
+    row = SimpleNamespace(ttclid='ttclid.abc123', ttp=None, ip=None, user_agent=None, registration_sent=True)
     with (
         patch.object(tiktok_events, '_is_enabled', return_value=True),
         patch.object(tiktok_events, 'get_ttclid', AsyncMock(return_value=row)),
@@ -236,7 +261,7 @@ async def test_on_registration_skips_without_ttclid_row() -> None:
 
 @pytest.mark.asyncio
 async def test_on_registration_fires_and_marks_sent() -> None:
-    row = SimpleNamespace(ttclid='ttclid.abc123', ttp=None, registration_sent=False)
+    row = SimpleNamespace(ttclid='ttclid.abc123', ttp=None, ip=None, user_agent=None, registration_sent=False)
     db = AsyncMock()
     with (
         patch.object(tiktok_events, '_is_enabled', return_value=True),
@@ -255,7 +280,7 @@ async def test_on_registration_fires_and_marks_sent() -> None:
 async def test_on_purchase_fires_every_call_no_dedup_flag() -> None:
     """Unlike registration/trial/first-connected, purchases have no dedup flag —
     every completed payment should fire its own event."""
-    row = SimpleNamespace(ttclid='ttclid.abc123', ttp=None)
+    row = SimpleNamespace(ttclid='ttclid.abc123', ttp=None, ip=None, user_agent=None)
     db = AsyncMock()
     with (
         patch.object(tiktok_events, '_is_enabled', return_value=True),
@@ -284,12 +309,14 @@ async def test_on_purchase_noop_without_ttclid() -> None:
 
 @pytest.mark.asyncio
 async def test_resolve_ttclid_token_reads_cache_key() -> None:
-    cached = json.dumps({'ttclid': 'ttclid.abc123', 'ttp': 'ttp.cookie456'})
+    cached = json.dumps(
+        {'ttclid': 'ttclid.abc123', 'ttp': 'ttp.cookie456', 'ip': '203.0.113.5', 'user_agent': 'Mozilla/5.0'}
+    )
     with patch.object(tiktok_events.cache, 'get', AsyncMock(return_value=cached)) as get_mock:
         result = await tiktok_events.resolve_ttclid_token('shorttok123')
 
     get_mock.assert_awaited_once_with('ttclid:token:shorttok123')
-    assert result == ('ttclid.abc123', 'ttp.cookie456')
+    assert result == ('ttclid.abc123', 'ttp.cookie456', '203.0.113.5', 'Mozilla/5.0')
 
 
 @pytest.mark.asyncio
@@ -297,7 +324,7 @@ async def test_resolve_ttclid_token_without_ttp() -> None:
     cached = json.dumps({'ttclid': 'ttclid.abc123', 'ttp': None})
     with patch.object(tiktok_events.cache, 'get', AsyncMock(return_value=cached)):
         result = await tiktok_events.resolve_ttclid_token('shorttok123')
-    assert result == ('ttclid.abc123', None)
+    assert result == ('ttclid.abc123', None, None, None)
 
 
 @pytest.mark.asyncio
@@ -307,17 +334,17 @@ async def test_resolve_ttclid_token_accepts_legacy_bare_string() -> None:
     window (24h cache TTL)."""
     with patch.object(tiktok_events.cache, 'get', AsyncMock(return_value='ttclid.abc123')):
         result = await tiktok_events.resolve_ttclid_token('shorttok123')
-    assert result == ('ttclid.abc123', None)
+    assert result == ('ttclid.abc123', None, None, None)
 
 
 @pytest.mark.asyncio
 async def test_resolve_ttclid_token_returns_none_when_missing() -> None:
     with patch.object(tiktok_events.cache, 'get', AsyncMock(return_value=None)):
         result = await tiktok_events.resolve_ttclid_token('unknowntoken')
-    assert result == (None, None)
+    assert result == (None, None, None, None)
 
 
 @pytest.mark.asyncio
 async def test_resolve_ttclid_token_empty_input() -> None:
     result = await tiktok_events.resolve_ttclid_token('')
-    assert result == (None, None)
+    assert result == (None, None, None, None)
