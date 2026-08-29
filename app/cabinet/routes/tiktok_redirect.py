@@ -45,6 +45,15 @@ async def _build_deep_link(
 ) -> str:
     """Capture a TikTok ttclid and return the bot's /start deep link URL."""
     client_ip = get_client_ip(request)
+    # Logged at info level so a real/curl test click can be eyeballed in the
+    # deploy logs to confirm CABINET_TRUSTED_PROXIES is resolving the real
+    # visitor IP behind the reverse proxy, not the proxy's own address.
+    logger.info(
+        'tiktok redirect click received',
+        client_ip=client_ip,
+        peer_ip=request.client.host if request.client else None,
+        campaign=campaign,
+    )
     if await RateLimitCache.is_ip_rate_limited(client_ip, 'tiktok_redirect', limit=30, window=60, fail_closed=True):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -61,8 +70,14 @@ async def _build_deep_link(
 
     token = secrets.token_urlsafe(9)  # 12 url-safe chars, well within the Telegram deep-link alphabet
 
+    # Captured here rather than later in the bot flow: this is the actual click
+    # from the user's device on the TikTok ad, before it hops through Telegram's
+    # /start deep link (which carries no IP/UA of its own) — the best-quality
+    # signal for TikTok Events API's `user.ip` / `user.user_agent` match fields.
+    user_agent = request.headers.get('user-agent', '')[:512] or None
+
     try:
-        cached_value = json.dumps({'ttclid': ttclid, 'ttp': ttp})
+        cached_value = json.dumps({'ttclid': ttclid, 'ttp': ttp, 'ip': client_ip, 'user_agent': user_agent})
         await cache.set(f'ttclid:token:{token}', cached_value, expire=_TOKEN_TTL_SECONDS)
     except Exception:
         logger.warning('Failed to cache ttclid token', token=token)

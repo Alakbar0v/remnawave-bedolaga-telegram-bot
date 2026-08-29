@@ -237,15 +237,19 @@ async def _persist_pending_ttclid_after_registration(
     if not pending_ttclid:
         return
     pending_ttp = data.get('pending_ttp')
+    pending_ip = data.get('pending_ttclid_ip')
+    pending_ua = data.get('pending_ttclid_ua')
     try:
         from app.services import tiktok_events_service as tiktok_events
 
         if fire_registration:
             await tiktok_events.store_ttclid_and_fire_registration(
-                user.id, pending_ttclid, source='telegram', ttp=pending_ttp
+                user.id, pending_ttclid, source='telegram', ttp=pending_ttp, ip=pending_ip, user_agent=pending_ua
             )
         else:
-            await tiktok_events.store_ttclid_only(user.id, pending_ttclid, source='telegram', ttp=pending_ttp)
+            await tiktok_events.store_ttclid_only(
+                user.id, pending_ttclid, source='telegram', ttp=pending_ttp, ip=pending_ip, user_agent=pending_ua
+            )
     except Exception as e:
         logger.error(
             'Failed to persist pending ttclid after registration',
@@ -1254,12 +1258,14 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
                 try:
                     from app.services import tiktok_events_service as tiktok_events
 
-                    ttclid, ttp = await tiktok_events.resolve_ttclid_token(short_token)
+                    ttclid, ttp, ttclid_ip, ttclid_ua = await tiktok_events.resolve_ttclid_token(short_token)
                 except Exception as e:
                     logger.warning('Failed to resolve ttclid token from /start deeplink', error=str(e))
-                    ttclid, ttp = None, None
+                    ttclid, ttp, ttclid_ip, ttclid_ua = None, None, None, None
                 if ttclid:
-                    await state.update_data(pending_ttclid=ttclid, pending_ttp=ttp)
+                    await state.update_data(
+                        pending_ttclid=ttclid, pending_ttp=ttp, pending_ttclid_ip=ttclid_ip, pending_ttclid_ua=ttclid_ua
+                    )
                     logger.info(
                         'Captured ttclid from /start deeplink',
                         telegram_id=message.from_user.id,
