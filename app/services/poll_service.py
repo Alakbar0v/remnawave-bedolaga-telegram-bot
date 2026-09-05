@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import structlog
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -150,6 +150,11 @@ async def send_poll_to_users(
 
                     await new_db.commit()
                     return 'sent'
+                except TelegramForbiddenError:
+                    # Пользователь заблокировал бота — это 403 Forbidden, отдельный
+                    # от TelegramBadRequest класс исключения в aiogram 3.x.
+                    await new_db.rollback()
+                    return 'skipped'
                 except TelegramBadRequest as error:
                     error_text = str(error).lower()
                     if 'chat not found' in error_text or 'bot was blocked by the user' in error_text:
