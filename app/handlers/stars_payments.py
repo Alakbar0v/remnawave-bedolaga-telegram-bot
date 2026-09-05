@@ -246,6 +246,8 @@ async def _handle_trial_payment(
     from app.services.admin_notification_service import AdminNotificationService
     from app.services.subscription_service import SubscriptionService
 
+    user_id = user.id
+
     try:
         # Парсим payload: trial_{subscription_id}
         parts = payload.split('_')
@@ -290,7 +292,7 @@ async def _handle_trial_payment(
             await db.rollback()
             logger.info(
                 'Дубликат Stars-платежа за триал (идемпотентный пропуск)',
-                user_id=user.id,
+                user_id=user_id,
                 subscription_id=subscription_id,
             )
             return True
@@ -299,14 +301,14 @@ async def _handle_trial_payment(
         subscription = await activate_pending_trial_subscription(
             db=db,
             subscription_id=subscription_id,
-            user_id=user.id,
+            user_id=user_id,
         )
 
         if not subscription:
             logger.error(
                 'Не удалось активировать триальную подписку для пользователя',
                 subscription_id=subscription_id,
-                user_id=user.id,
+                user_id=user_id,
             )
             # Возвращаем деньги на баланс
             from app.database.crud.user import add_user_balance
