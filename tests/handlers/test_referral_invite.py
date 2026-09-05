@@ -37,7 +37,7 @@ async def test_create_invite_message_wraps_links_in_code(monkeypatch):
     callback.bot = bot
     callback.answer = AsyncMock()
 
-    await ref.create_invite_message(callback, db_user)
+    await ref.create_invite_message(callback, db_user, None)
 
     html = captured['text']
     # Both links are wrapped in <code> so tap-to-copy captures them whole.
@@ -74,7 +74,7 @@ async def test_create_invite_message_hides_cabinet_link_for_ru_en(monkeypatch):
         callback.bot = bot
         callback.answer = AsyncMock()
 
-        await ref.create_invite_message(callback, db_user)
+        await ref.create_invite_message(callback, db_user, None)
 
         html = captured['text']
         assert '<code>https://t.me/bot?start=ref_X</code>' in html

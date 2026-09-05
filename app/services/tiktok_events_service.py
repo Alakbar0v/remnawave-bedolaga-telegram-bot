@@ -265,7 +265,9 @@ async def _fire_bg(event_name: str, event_fn, user_id: int, **kwargs) -> None:
         async with AsyncSessionLocal() as db:
             await event_fn(db, user_id, **kwargs)
     except Exception as exc:
-        logger.warning('TikTokEvents background event failed', event=event_name, user_id=user_id, error=str(exc))
+        logger.warning(
+            'TikTokEvents background event failed', tiktok_event_name=event_name, user_id=user_id, error=str(exc)
+        )
 
 
 async def fire_registration_bg(user_id: int) -> None:

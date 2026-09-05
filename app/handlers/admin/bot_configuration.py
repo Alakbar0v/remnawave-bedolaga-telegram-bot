@@ -66,7 +66,7 @@ CATEGORY_GROUP_METADATA: dict[str, dict[str, object]] = {
         'description': (
             'YooKassa, CryptoBot, Heleket, CloudPayments, Freekassa, MulenPay, PAL24, Wata, '
             'Platega, Tribute, Kassa AI, RioPay, SeverPay, PayPear, RollyPay, Overpay, AuraPay, '
-            'Etoplatezhi, Antilopay, Jupiter, CisPay, Donut, Lava и Telegram Stars.'
+            'Etoplatezhi, Antilopay, Jupiter, CisPay, TabPay, ParityPay, Donut, Lava и Telegram Stars.'
         ),
         'icon': '💳',
         'categories': (
@@ -88,6 +88,8 @@ CATEGORY_GROUP_METADATA: dict[str, dict[str, object]] = {
             'ANTILOPAY',
             'JUPITER',
             'CISPAY',
+            'TABPAY',
+            'PARITYPAY',
             'DONUT',
             'LAVA',
             'MULENPAY',
@@ -1361,7 +1363,13 @@ def _build_setting_keyboard(
             if choice_token is None:
                 continue
             button_text = option.label
-            if current_value == option.value and not button_text.startswith('✅'):
+            # Сравнение через as_choice_key: текущее значение приведено к типу
+            # настройки, а вариант описан строкой — у булевой галочка иначе не
+            # ставилась бы никогда.
+            same = bot_configuration_service.as_choice_key(current_value) == bot_configuration_service.as_choice_key(
+                option.value
+            )
+            if same and not button_text.startswith('✅'):
                 button_text = f'✅ {button_text}'
             choice_buttons.append(
                 types.InlineKeyboardButton(

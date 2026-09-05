@@ -86,9 +86,13 @@ class NotificationType(Enum):
     WEBHOOK_DEVICE_DELETED = 'webhook_device_deleted'
     WEBHOOK_TORRENT_DETECTED = 'webhook_torrent_detected'
 
+    # Support tickets
+    TICKET_REPLY = 'ticket_reply'
+
     # Other
     BROADCAST = 'broadcast'
     PAYMENT_RECEIVED = 'payment_received'
+    NALOGO_RECEIPT = 'nalogo_receipt'
     PROMO_OFFER = 'promo_offer'
 
     # Guest purchase notifications
@@ -96,6 +100,7 @@ class NotificationType(Enum):
     GUEST_ACTIVATION_REQUIRED = 'guest_activation_required'
     GUEST_GIFT_RECEIVED = 'guest_gift_received'
     GUEST_CABINET_CREDENTIALS = 'guest_cabinet_credentials'
+    GUEST_GIFT_LINK_BUYER = 'guest_gift_link_buyer'
 
 
 # Письма, которые почтовые провайдеры считают массовой рассылкой: только они
@@ -129,6 +134,12 @@ class NotificationDeliveryService:
     def _is_allowed_by_preferences(user: User, notification_type: NotificationType) -> bool:
         """Apply global, category and per-user notification switches centrally."""
         global_switch_exempt_types = {
+            # Ответ поддержки — реакция на обращение самого пользователя, а не
+            # рассылка: Telegram-канал шлёт его мимо роутера и ENABLE_NOTIFICATIONS
+            # не смотрит, гейт у него один — user_ticket_notifications_enabled.
+            # Без исключения email-юзер молча остаётся без ответа там, где
+            # Telegram-юзер его получает.
+            NotificationType.TICKET_REPLY,
             NotificationType.EMAIL_VERIFICATION,
             NotificationType.PASSWORD_RESET,
             NotificationType.EMAIL_CHANGE_CODE,
@@ -221,6 +232,7 @@ class NotificationDeliveryService:
         bot: Bot | None = None,
         telegram_message: str | None = None,
         telegram_markup: Any | None = None,
+        use_websocket: bool = True,
     ) -> bool:
         """
         Send notification to user through appropriate channel.
@@ -232,6 +244,9 @@ class NotificationDeliveryService:
             bot: Telegram bot instance (required for Telegram users)
             telegram_message: Pre-formatted Telegram message (optional)
             telegram_markup: Telegram keyboard markup (optional)
+            use_websocket: Send the cabinet WebSocket event alongside the email.
+                Pass False when the caller already emits its own WebSocket event
+                for this notification, to avoid delivering it twice.
 
         Returns:
             True if notification was sent successfully through at least one channel
@@ -264,14 +279,14 @@ class NotificationDeliveryService:
             )
         if user.email and user.email_verified:
             # Email-only user - send via email and WebSocket
-            results = await asyncio.gather(
-                self._send_email_notification(user, notification_type, context),
-                self._send_websocket_notification(user, notification_type, context),
-                return_exceptions=True,
-            )
+            channels = [self._send_email_notification(user, notification_type, context)]
+            if use_websocket:
+                channels.append(self._send_websocket_notification(user, notification_type, context))
+
+            results = await asyncio.gather(*channels, return_exceptions=True)
 
             email_sent = results[0] is True
-            ws_sent = results[1] is True
+            ws_sent = len(results) > 1 and results[1] is True
 
             if email_sent or ws_sent:
                 logger.info(
@@ -282,6 +297,16 @@ class NotificationDeliveryService:
                     ws_sent=ws_sent,
                 )
                 return True
+            from app.cabinet.services.email_type_switch import is_email_type_enabled
+
+            if not is_email_type_enabled(notification_type.value):
+                # Письмо выключено админом — это не сбой доставки.
+                logger.debug(
+                    'Уведомление email-пользователю пропущено: тип письма отключён',
+                    notification_type_value=notification_type.value,
+                    user_id=user.id,
+                )
+                return False
             logger.warning(
                 'Не удалось отправить уведомление email-пользователю',
                 notification_type_value=notification_type.value,
@@ -320,6 +345,17 @@ class NotificationDeliveryService:
             TelegramRetryAfter,
             TelegramServerError,
         )
+
+        # В rich-режиме уведомление отправляется тем же полотном, что и меню, — иначе
+        # оно выбивается из общего вида. Ровно одна попытка: любой отказ (включая
+        # разметку, которую rich не воспроизводит дословно) отдаёт False, и ниже
+        # отрабатывает классический путь со своими ретраями, учётом и метриками.
+        from app.utils.rich_notify import try_send_rich_notification
+
+        if await try_send_rich_notification(
+            bot, user.telegram_id, message, keyboard=markup, with_logo=settings.ENABLE_LOGO_MODE
+        ):
+            return True
 
         # Retry transient Telegram-side ошибки (network/5xx/flood) с экспоненциальным
         # бэк-оффом. До этого ConnectionReset уходил в `except Exception` и логировался
@@ -428,6 +464,12 @@ class NotificationDeliveryService:
 
         if not user.email or not user.email_verified:
             logger.debug('У пользователя нет подтверждённого email', user_id=user.id)
+            return False
+
+        from app.cabinet.services.email_type_switch import is_email_type_enabled
+
+        if not is_email_type_enabled(notification_type.value):
+            logger.debug('Письмо этого типа отключено админом', notification_type=notification_type.value)
             return False
 
         # Маркетинг уважает отписку; транзакционные письма — нет (иначе человек
@@ -715,12 +757,33 @@ class NotificationDeliveryService:
         bot: Bot | None = None,
         telegram_message: str | None = None,
         telegram_markup: Any | None = None,
+        bonus_days: int = 0,
+        tariff_name: str = '',
+        level: int = 1,
     ) -> bool:
-        """Notify user about referral bonus."""
+        """Notify user about referral bonus.
+
+        Награда может быть выдана днями подписки, а не деньгами. Без ``bonus_days``
+        такое начисление уходит в письмо как «Реферальный бонус: +0.00 ₽» — сумма
+        честно нулевая, потому что дни в неё и не должны попадать, а выданные дни
+        назвать нечем. ``formatted_reward`` поэтому описывает награду целиком.
+        """
+        reward_parts = []
+        if bonus_kopeks > 0:
+            reward_parts.append(settings.format_price(bonus_kopeks))
+        if bonus_days > 0:
+            tariff_suffix = f' тарифа «{tariff_name}»' if tariff_name else ''
+            reward_parts.append(f'{bonus_days} дн. подписки{tariff_suffix}')
+
         context = {
             'bonus_kopeks': bonus_kopeks,
             'bonus_rubles': bonus_kopeks / 100,
             'formatted_bonus': settings.format_price(bonus_kopeks),
+            'bonus_days': bonus_days,
+            'tariff_name': tariff_name,
+            'level': level,
+            # Единственное поле, которое верно и для денег, и для дней, и для обоих.
+            'formatted_reward': ' + '.join(reward_parts) or settings.format_price(bonus_kopeks),
             'referral_name': referral_name,
         }
 
@@ -849,6 +912,39 @@ class NotificationDeliveryService:
             bot=bot,
             telegram_message=telegram_message,
             telegram_markup=telegram_markup,
+        )
+
+    async def notify_ticket_reply(
+        self,
+        user: User,
+        ticket_id: int,
+        reply_preview: str,
+        has_photo: bool = False,
+        bot: Bot | None = None,
+        telegram_message: str | None = None,
+        telegram_markup: Any | None = None,
+    ) -> bool:
+        """Notify user about a support reply in their ticket.
+
+        Пользователь без ``telegram_id`` (регистрация по email) иначе узнаёт об
+        ответе поддержки, только если сам зайдёт в кабинет.
+        """
+        context = {
+            'ticket_id': ticket_id,
+            'reply_preview': reply_preview or '',
+            'has_photo': has_photo,
+        }
+
+        # WebSocket-событие об ответе кабинет шлёт сам (``ticket.admin_reply``),
+        # второе здесь дало бы дубль уведомления в интерфейсе.
+        return await self.send_notification(
+            user=user,
+            notification_type=NotificationType.TICKET_REPLY,
+            context=context,
+            bot=bot,
+            telegram_message=telegram_message,
+            telegram_markup=telegram_markup,
+            use_websocket=False,
         )
 
 
