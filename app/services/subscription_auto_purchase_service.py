@@ -973,9 +973,16 @@ async def _auto_purchase_tariff(
                 connected_squads=squads,
             )
             was_trial_conversion = existing_subscription.is_trial
-            if was_trial_conversion:
-                subscription.is_trial = False
-                subscription.status = 'active'
+            was_pending = subscription.status == SubscriptionStatus.PENDING.value
+            if was_trial_conversion or was_pending:
+                if was_trial_conversion:
+                    subscription.is_trial = False
+                # Баланс уже реально списан выше (subtract_user_balance) — это
+                # подтверждённая оплата, поэтому pending-подписку (например,
+                # оставшуюся от незавершённого триала/счёта) можно безопасно
+                # активировать здесь, в отличие от extend_subscription(),
+                # которая намеренно не трогает PENDING без подтверждённого платежа.
+                subscription.status = SubscriptionStatus.ACTIVE.value
                 await db.commit()
         else:
             # Создаём новую подписку
