@@ -35,6 +35,8 @@ from app.database.models import (
     MainMenuButton,
     PaymentMethodConfig,
     PinnedMessage,
+    PromoCode,
+    PromoCodeUse,
     PromoGroup,
     PromoOfferLog,
     SentNotification,
@@ -74,6 +76,8 @@ from tests.fixtures.sqlite_memory import memory_session
 _TABLES = [
     SystemSetting.__table__,
     Tariff.__table__,
+    PromoCode.__table__,
+    PromoCodeUse.__table__,
     PromoGroup.__table__,
     tariff_promo_groups,
     UserPromoGroup.__table__,

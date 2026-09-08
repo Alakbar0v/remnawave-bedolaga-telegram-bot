@@ -85,8 +85,69 @@ async def activate_promocode_for_registration(
                 logger.error(
                     'Ошибка отправки админ уведомления об активации промокода', code=code, notify_error=notify_error
                 )
+                # Уведомление шлётся ПОСЛЕ commit самой активации (см.
+                # PromoCodeService.activate_promocode) — ошибка здесь не может
+                # откатить уже сохранённую активацию. Но если она случилась
+                # посреди flush (например неудачная запись SubscriptionEvent),
+                # сессия остаётся в PendingRollbackError до явного rollback,
+                # и любой следующий запрос в этой же сессии (а вызывающие
+                # держат её открытой для остального /start-хендлера) падает
+                # тем же исключением ещё раз — rollback здесь только сбрасывает
+                # незакоммиченный остаток уведомления, не саму активацию.
+                try:
+                    await db.rollback()
+                except Exception:
+                    logger.exception('Не удалось откатить сессию после сбоя уведомления', code=code)
 
     return result
+
+
+def get_promocode_error_text(texts, error_code: str | None) -> str:
+    """Текст ошибки активации промокода по коду результата ``activate_promocode``.
+
+    Общий источник истины для ручного ввода промокода (``process_promocode``) и
+    активации по deep-link ``/start <промокод>`` (``app/handlers/start.py``), чтобы
+    оба пути показывали пользователю одинаковые сообщения.
+    """
+    error_messages = {
+        'not_found': texts.PROMOCODE_INVALID,
+        'expired': texts.PROMOCODE_EXPIRED,
+        'inactive': texts.t('PROMOCODE_INACTIVE', '❌ Промокод деактивирован'),
+        'not_yet_valid': texts.t('PROMOCODE_NOT_YET_VALID', '❌ Промокод ещё не начал действовать'),
+        'used': texts.PROMOCODE_USED,
+        'already_used_by_user': texts.PROMOCODE_USED,
+        'user_not_found': texts.t('PROMOCODE_USER_NOT_FOUND', '❌ Пользователь не найден'),
+        'not_first_purchase': texts.t(
+            'PROMOCODE_NOT_FIRST_PURCHASE', '❌ Этот промокод доступен только для первой покупки'
+        ),
+        'active_discount_exists': texts.t(
+            'PROMOCODE_ACTIVE_DISCOUNT_EXISTS',
+            '❌ У вас уже есть активная скидка. Используйте её перед активацией новой.',
+        ),
+        'no_subscription_for_days': texts.t(
+            'PROMOCODE_NO_SUBSCRIPTION',
+            '❌ Для активации этого промокода необходима подписка (активная или просроченная).',
+        ),
+        'subscription_not_found': texts.t('PROMOCODE_SUBSCRIPTION_NOT_FOUND', '❌ Подписка не найдена.'),
+        'traffic_not_applicable': texts.t(
+            'PROMOCODE_TRAFFIC_NOT_APPLICABLE',
+            '❌ Этот промокод даёт только трафик, а у вашей подписки он безлимитный. Код не потрачен.',
+        ),
+        'daily_limit': texts.t(
+            'PROMO_DAILY_LIMIT',
+            '❌ Достигнут лимит активаций промокодов на сегодня. Попробуйте завтра.',
+        ),
+        'trial_subscription_exists': texts.t(
+            'PROMOCODE_TRIAL_SUBSCRIPTION_EXISTS',
+            '❌ У вас уже есть подписка, поэтому триал-промокод применить нельзя.',
+        ),
+        'trial_provisioning_failed': texts.t(
+            'PROMOCODE_TRIAL_PROVISIONING_FAILED',
+            '❌ Не удалось выдать триал прямо сейчас. Попробуйте позже.',
+        ),
+        'server_error': texts.ERROR,
+    }
+    return error_messages.get(error_code, texts.PROMOCODE_INVALID)
 
 
 _NO_SAVED_STATE = object()
@@ -194,46 +255,7 @@ async def process_promocode(message: types.Message, db_user: User, state: FSMCon
             promo_limiter.record_failed_attempt(message.from_user.id)
             promo_limiter.cleanup()
 
-        error_messages = {
-            'not_found': texts.PROMOCODE_INVALID,
-            'expired': texts.PROMOCODE_EXPIRED,
-            'inactive': texts.t('PROMOCODE_INACTIVE', '❌ Промокод деактивирован'),
-            'not_yet_valid': texts.t('PROMOCODE_NOT_YET_VALID', '❌ Промокод ещё не начал действовать'),
-            'used': texts.PROMOCODE_USED,
-            'already_used_by_user': texts.PROMOCODE_USED,
-            'user_not_found': texts.t('PROMOCODE_USER_NOT_FOUND', '❌ Пользователь не найден'),
-            'not_first_purchase': texts.t(
-                'PROMOCODE_NOT_FIRST_PURCHASE', '❌ Этот промокод доступен только для первой покупки'
-            ),
-            'active_discount_exists': texts.t(
-                'PROMOCODE_ACTIVE_DISCOUNT_EXISTS',
-                '❌ У вас уже есть активная скидка. Используйте её перед активацией новой.',
-            ),
-            'no_subscription_for_days': texts.t(
-                'PROMOCODE_NO_SUBSCRIPTION',
-                '❌ Для активации этого промокода необходима подписка (активная или просроченная).',
-            ),
-            'subscription_not_found': texts.t('PROMOCODE_SUBSCRIPTION_NOT_FOUND', '❌ Подписка не найдена.'),
-            'traffic_not_applicable': texts.t(
-                'PROMOCODE_TRAFFIC_NOT_APPLICABLE',
-                '❌ Этот промокод даёт только трафик, а у вашей подписки он безлимитный. Код не потрачен.',
-            ),
-            'daily_limit': texts.t(
-                'PROMO_DAILY_LIMIT',
-                '❌ Достигнут лимит активаций промокодов на сегодня. Попробуйте завтра.',
-            ),
-            'trial_subscription_exists': texts.t(
-                'PROMOCODE_TRIAL_SUBSCRIPTION_EXISTS',
-                '❌ У вас уже есть подписка, поэтому триал-промокод применить нельзя.',
-            ),
-            'trial_provisioning_failed': texts.t(
-                'PROMOCODE_TRIAL_PROVISIONING_FAILED',
-                '❌ Не удалось выдать триал прямо сейчас. Попробуйте позже.',
-            ),
-            'server_error': texts.ERROR,
-        }
-
-        error_text = error_messages.get(result['error'], texts.PROMOCODE_INVALID)
+        error_text = get_promocode_error_text(texts, result['error'])
         await message.answer(error_text, reply_markup=get_back_keyboard(db_user.language))
         await _restore_previous_state(state)
 
