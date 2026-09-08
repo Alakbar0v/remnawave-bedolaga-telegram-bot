@@ -894,7 +894,7 @@
   Функции: `handle_poll_start`, `handle_poll_answer`, `register_handlers`
 - `app/handlers/promocode.py` — Python-модуль
   Классы: нет
-  Функции: `show_promocode_menu`, `activate_promocode_for_registration` — Активирует промокод для пользователя., `process_promocode`, `handle_promo_subscription_select` — Handle subscription selection for promocode with days in multi-tariff., `register_handlers`
+  Функции: `show_promocode_menu`, `activate_promocode_for_registration` — Активирует промокод для пользователя., `get_promocode_error_text` — Текст ошибки активации промокода по коду результата ``activate_promocode``., `process_promocode`, `handle_promo_subscription_select` — Handle subscription selection for promocode with days in multi-tariff., `register_handlers`
 - `app/handlers/referral.py` — Python-модуль
   Классы: нет
   Функции: `show_referral_info`, `show_referral_qr`, `show_detailed_referral_list`, `show_referral_analytics`, `create_invite_message`, `show_withdrawal_info` — Показывает информацию о выводе реферального баланса., `start_withdrawal_request` — Начинает процесс оформления заявки на вывод., `process_withdrawal_amount` — Обрабатывает ввод суммы для вывода., `process_withdrawal_amount_callback` — Обрабатывает выбор суммы для вывода через кнопку., `process_payment_details` — Обрабатывает ввод реквизитов и показывает подтверждение., `confirm_withdrawal_request` — Подтверждает и создаёт заявку на вывод., `cancel_withdrawal_request` — Отменяет процесс создания заявки на вывод., `register_handlers`
@@ -3485,6 +3485,9 @@
 - `tests/handlers/test_promo_segment_counts.py` — Python-модуль
   Классы: нет
   Функции: `test_promo_segment_counts_match_recipient_lists` — Для каждого промо-сегмента SQL-счётчик равен длине списка получателей., `test_promo_segment_counts_are_not_all_zero` — Явные ожидания — паритет сам по себе прошёл бы и на двух одинаково пустых ветках., `test_expired_segment_edge_cases` — Каждый расходившийся случай — в отдельной БД, чтобы ошибки не сокращались., `test_unknown_segment_counts_zero` — Неизвестный ключ не роняет запрос и не показывает мусорный охват.
+- `tests/handlers/test_promocode_notification_rollback.py` — Python-модуль
+  Классы: нет
+  Функции: `test_notification_failure_rolls_back_session` — Если отправка админ-уведомления падает, db.rollback() вызывается, а сама, `test_no_rollback_when_notification_succeeds` — Sanity-check: если уведомление ушло успешно, лишнего rollback быть не должно.
 - `tests/handlers/test_referral_invite.py` — Python-модуль
   Классы: нет
   Функции: `test_create_invite_message_wraps_links_in_code`, `test_create_invite_message_hides_cabinet_link_for_ru_en` — Cabinet link is not promoted to ru/en users on this screen — only the
@@ -3509,6 +3512,9 @@
 - `tests/handlers/test_start_menu_media.py` — Python-модуль
   Классы: нет
   Функции: `test_video_takes_precedence_over_logo`, `test_without_video_falls_back_to_logo`, `test_removed_video_returns_to_logo` — Удаление видео в кабинете сразу возвращает прежнее поведение., `test_long_caption_goes_to_plain_text` — Подпись длиннее лимита Telegram нельзя приложить ни к видео, ни к фото., `test_video_send_failure_still_delivers_menu` — Битый file_id не должен оставлять пользователя без меню., `test_video_used_even_when_logo_mode_disabled` — Видео — самостоятельная настройка, не зависит от ENABLE_LOGO_MODE., `test_answer_path_sends_video` — /start отвечает через message.answer — видео обязано работать и там., `test_answer_path_without_video_delegates_unchanged` — Без видео поведение обязано остаться ровно прежним (патченный answer)., `test_answer_path_falls_back_when_video_broken`, `test_answer_path_long_caption_delegates_to_text`
+- `tests/handlers/test_start_promocode_deeplink_priority.py` — Python-модуль
+  Классы: нет
+  Функции: `test_existing_user_promocode_activated_immediately_not_as_referral` — Уже зарегистрированный юзер: /start <промокод> активирует код сразу и НЕ, `test_new_user_promocode_deferred_to_state_not_treated_as_referral` — Новый пользователь: /start <промокод> кладёт код в FSM state('promocode') для, `test_non_promocode_start_parameter_still_falls_back_to_referral` — Параметр, который не резолвится как промокод, по-прежнему трактуется как
 - `tests/handlers/test_start_subid.py` — Python-модуль
   Классы: `TestSplitStartParamSubid` (9 методов)
   Функции: нет

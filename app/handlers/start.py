@@ -608,6 +608,74 @@ async def _redeem_pending_coupon(
         )
 
 
+async def _activate_deep_link_promocode(
+    db: AsyncSession,
+    user: 'User',
+    code: str,
+    bot,
+    answer_func: Callable[..., Any],
+) -> None:
+    """Активирует промокод, пришедший через ``/start <код>``, для уже существующего
+    пользователя.
+
+    Для НОВЫХ пользователей код вместо немедленной активации кладётся в FSM state
+    (ключ ``promocode``, тот же, что и при ручном вводе кода при регистрации) и
+    активируется штатным хуком после завершения регистрации — см.
+    ``complete_registration``. Здесь — путь для тех, кто уже зарегистрирован, для
+    них «после регистрации» никогда не наступит.
+    """
+    from app.handlers.promocode import activate_promocode_for_registration, get_promocode_error_text
+
+    texts = get_texts(user.language)
+
+    try:
+        result = await activate_promocode_for_registration(db, user.id, code, bot)
+    except Exception:
+        logger.exception('Failed to activate promocode from /start deeplink', code=code, user_id=user.id)
+        return
+
+    if result['success']:
+        try:
+            await answer_func(texts.PROMOCODE_SUCCESS.format(description=result['description']))
+        except Exception:
+            logger.exception('Promocode activated but confirmation message failed to send', code=code, user_id=user.id)
+        return
+
+    if result.get('error') == 'select_subscription':
+        # Multi-tariff: промокод с днями применим к нескольким подпискам сразу —
+        # просим пользователя выбрать (тот же callback_data формат, что и в
+        # process_promocode/handle_promo_subscription_select).
+        eligible = result.get('eligible_subscriptions', [])
+        promo_code = result.get('code', code)
+        buttons = []
+        for sub in eligible:
+            name = sub.get('tariff_name', f'#{sub["id"]}')
+            days = sub.get('days_left', 0)
+            buttons.append(
+                [
+                    types.InlineKeyboardButton(
+                        text=f'{name} ({days} дн.)',
+                        callback_data=f'promo_sub:{sub["id"]}:{promo_code}',
+                    )
+                ]
+            )
+        buttons.append([types.InlineKeyboardButton(text='❌ Отмена', callback_data='back_to_menu')])
+        try:
+            await answer_func(
+                texts.t('PROMOCODE_SELECT_SUBSCRIPTION', '🎟️ К какой подписке применить промокод?'),
+                reply_markup=types.InlineKeyboardMarkup(inline_keyboard=buttons),
+            )
+        except Exception:
+            logger.exception('Failed to send promocode subscription-select prompt', code=code, user_id=user.id)
+        return
+
+    error_text = get_promocode_error_text(texts, result.get('error'))
+    try:
+        await answer_func(error_text)
+    except Exception:
+        logger.exception('Failed to send promocode activation error', code=code, user_id=user.id)
+
+
 async def _delete_message_later(bot, chat_id: int, message_id: int, delay: int = 30) -> None:
     try:
         await asyncio.sleep(delay)
@@ -1535,8 +1603,40 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
                     campaign_name=campaign.name,
                 )
         else:
-            referral_code = start_parameter
-            logger.info('🔎 Найден реферальный код', referral_code=referral_code)
+            # Промокод проверяется ПЕРЕД тем, как трактовать параметр как
+            # реферальный код: /start-ссылка с промокодом не должна молча
+            # проглатываться как «нераспознанный» реферальный код.
+            from app.database.crud.promocode import check_promocode_validity
+            from app.utils.promo_rate_limiter import validate_promo_format
+
+            promocode_check: dict = {'valid': False}
+            if validate_promo_format(start_parameter):
+                try:
+                    promocode_check = await check_promocode_validity(db, start_parameter)
+                except Exception as exc:
+                    # Не роняем весь /start из-за сбоя проверки промокода — как и
+                    # с get_user_by_referral_code ниже, деградируем и пробуем
+                    # параметр как реферальный код.
+                    logger.warning('Failed to validate promocode at /start', promocode=start_parameter, error=exc)
+
+            if promocode_check.get('valid'):
+                promo_code_from_link = start_parameter
+                logger.info('🎟 Найден промокод в /start', promocode=promo_code_from_link)
+
+                promo_user = db_user or await get_user_by_telegram_id(db, message.from_user.id)
+                if promo_user and promo_user.status != UserStatus.DELETED.value:
+                    # Уже зарегистрирован — активируем сразу, «после регистрации»
+                    # для него не наступит.
+                    await _activate_deep_link_promocode(
+                        db, promo_user, promo_code_from_link, message.bot, message.answer
+                    )
+                else:
+                    # Новый пользователь — активируется штатным хуком в
+                    # complete_registration после создания аккаунта.
+                    await state.update_data(promocode=promo_code_from_link)
+            else:
+                referral_code = start_parameter
+                logger.info('🔎 Найден реферальный код', referral_code=referral_code)
 
     if referral_code:
         await state.update_data(referral_code=referral_code)
