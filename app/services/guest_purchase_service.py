@@ -1456,6 +1456,7 @@ async def _send_guest_main_email(
         )
 
 
+
 async def send_guest_notification(
     purchase: GuestPurchase,
     *,

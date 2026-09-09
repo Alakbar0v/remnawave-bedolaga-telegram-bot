@@ -60,6 +60,7 @@ from app.database.models import (
     WheelSpin,
     WithdrawalRequest,
 )
+from app.services.panel_expiry import panel_expire_at
 from app.services.permission_service import PermissionService
 from app.utils.subscription_utils import coerce_panel_device_limit
 from app.utils.timezone import panel_datetime_to_utc
@@ -332,6 +333,39 @@ async def _build_subscription_info_async(db: AsyncSession, subscription: Subscri
     return info
 
 
+async def _record_panel_identity(
+    db: AsyncSession,
+    subscription: Subscription,
+    panel_user_id: int,
+    changes: dict,
+) -> None:
+    """Записать id найденного аккаунта панели на строку подписки, если она его не знает.
+
+    В одиночном режиме аккаунт панели общий и известен через ``users.remnawave_id``,
+    но экраны админки по выбранной подписке (panel-info, устройства, трафик) читают
+    строго ``subscriptions.remnawave_id``: новая строка без него — «пользователь не
+    найден в панели». Так оставалась подписка, созданная админом после удаления
+    старой: помощник обновлял аккаунт, а id на строку не писал.
+
+    Колонка частично уникальна: если id уже держит соседняя строка того же
+    человека, не пишем — адресация остаётся через пользователя, а IntegrityError
+    после успешного PATCH в панель откатил бы всё сделанное.
+    """
+    if subscription.remnawave_id:
+        return
+    from app.services.subscription_service import link_subscription_panel_identity
+
+    if await link_subscription_panel_identity(db, subscription, panel_user_id):
+        changes['panel_user_id'] = panel_user_id
+        changes['subscription_linked'] = True
+        return
+    logger.warning(
+        'Panel id is held by another subscription row; leaving this row unlinked',
+        subscription_id=subscription.id,
+        panel_user_id=panel_user_id,
+    )
+
+
 async def _sync_subscription_to_panel(
     db: AsyncSession,
     user: User,
@@ -385,9 +419,10 @@ async def _sync_subscription_to_panel(
         )
         panel_status = PanelUserStatus.ACTIVE if is_active else PanelUserStatus.DISABLED
 
-        expire_at = subscription.end_date
-        if expire_at and expire_at <= datetime.now(UTC):
-            expire_at = datetime.now(UTC) + timedelta(minutes=1)
+        # Живой подписке — её дата; истёкшей при обновлении дату в панели не
+        # трогаем (см. panel_expire_at), при создании ставим допустимый минимум.
+        expire_at_update = panel_expire_at(subscription.end_date, is_active=is_active, creating=False)
+        expire_at_create = panel_expire_at(subscription.end_date, is_active=is_active, creating=True)
 
         # При multi-tariff create-path ниже приклеивается `_<remnawave_short_id>`.
         # build_remnawave_subscription_username гарантирует, что итоговая строка
@@ -482,8 +517,8 @@ async def _sync_subscription_to_panel(
                     'traffic_limit_strategy': get_traffic_reset_strategy(subscription.tariff),
                     'description': description,
                 }
-                if expire_at:
-                    update_kwargs['expire_at'] = expire_at
+                if expire_at_update:
+                    update_kwargs['expire_at'] = expire_at_update
                 if subscription.connected_squads:
                     update_kwargs['active_internal_squads'] = subscription.connected_squads
                 if hwid_limit is not None:
@@ -503,6 +538,7 @@ async def _sync_subscription_to_panel(
                     subscription.subscription_url = updated_panel_user.subscription_url
                     subscription.subscription_crypto_link = updated_panel_user.happ_crypto_link
                     subscription.remnawave_short_uuid = updated_panel_user.short_uuid
+                    await _record_panel_identity(db, subscription, panel_user_id, changes)
                     changes['action'] = 'updated'
                     logger.info('Updated user in Remnawave panel', user_id=user.id)
                 except Exception as update_error:
@@ -519,7 +555,7 @@ async def _sync_subscription_to_panel(
                 # Create new user
                 create_kwargs = {
                     'username': username,
-                    'expire_at': expire_at or (datetime.now(UTC) + timedelta(days=30)),
+                    'expire_at': expire_at_create or (datetime.now(UTC) + timedelta(days=30)),
                     'status': panel_status,
                     'traffic_limit_bytes': traffic_limit_bytes,
                     'traffic_limit_strategy': get_traffic_reset_strategy(subscription.tariff),
@@ -4278,10 +4314,8 @@ async def sync_user_to_panel(
         )
         panel_status = PanelUserStatus.ACTIVE if is_active else PanelUserStatus.DISABLED
 
-        # Ensure expire_at is in future for panel
-        expire_at = sub.end_date
-        if expire_at and expire_at <= datetime.now(UTC):
-            expire_at = datetime.now(UTC) + timedelta(minutes=1)
+        expire_at_update = panel_expire_at(sub.end_date, is_active=is_active, creating=False)
+        expire_at_create = panel_expire_at(sub.end_date, is_active=is_active, creating=True)
 
         # Same precaution as the per-user sync above: multi-tariff create-path
         # appends `_<remnawave_short_id>`. Helper resрвирует место.
@@ -4357,9 +4391,9 @@ async def sync_user_to_panel(
                     update_kwargs['status'] = panel_status
                     changes['status'] = panel_status.value
 
-                if request.update_expire_date and expire_at:
-                    update_kwargs['expire_at'] = expire_at
-                    changes['expire_at'] = expire_at.isoformat()
+                if request.update_expire_date and expire_at_update:
+                    update_kwargs['expire_at'] = expire_at_update
+                    changes['expire_at'] = expire_at_update.isoformat()
 
                 if request.update_traffic_limit:
                     update_kwargs['traffic_limit_bytes'] = traffic_limit_bytes
@@ -4386,6 +4420,7 @@ async def sync_user_to_panel(
                         sub.id,
                         **update_kwargs,
                     )
+                    await _record_panel_identity(db, sub, panel_user_id, changes)
                     action = 'updated'
                 except Exception as update_error:
                     # «Пользователя нет» = только явный признак этого (404/A018/A063).
@@ -4402,7 +4437,7 @@ async def sync_user_to_panel(
                 # Create new user in panel
                 create_kwargs = {
                     'username': username,
-                    'expire_at': expire_at or (datetime.now(UTC) + timedelta(days=30)),
+                    'expire_at': expire_at_create or (datetime.now(UTC) + timedelta(days=30)),
                     'status': panel_status,
                     'traffic_limit_bytes': traffic_limit_bytes,
                     'traffic_limit_strategy': get_traffic_reset_strategy(sub.tariff),
