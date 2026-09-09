@@ -1204,14 +1204,8 @@ async def register_email(
     If the email belongs to another active user, offers account merge.
     """
     await require_email_auth_enabled(db)
-    # Rate limit
     client_ip = get_client_ip(raw_request)
-    if await RateLimitCache.is_ip_rate_limited(client_ip, 'email_register', limit=5, window=60, fail_closed=True):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail='Too many requests',
-            headers={'Retry-After': '60'},
-        )
+    await enforce_email_registration_throttle(client_ip)
 
     # Check if user already has a verified email — block before doing anything else
     if user.email and user.email_verified:

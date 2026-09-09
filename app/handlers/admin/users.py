@@ -5123,6 +5123,7 @@ async def admin_buy_subscription_execute(callback: types.CallbackQuery, db_user:
 
             try:
                 from app.external.remnawave_api import UserStatus
+                from app.services.panel_expiry import panel_expire_at
                 from app.services.remnawave_service import RemnaWaveService
                 from app.services.subscription_service import get_traffic_reset_strategy
 
@@ -5151,7 +5152,6 @@ async def admin_buy_subscription_execute(callback: types.CallbackQuery, db_user:
                         update_kwargs = dict(
                             user_id=panel_user_id,
                             status=UserStatus.ACTIVE if subscription.is_active else UserStatus.DISABLED,
-                            expire_at=subscription.end_date,
                             traffic_limit_bytes=subscription.traffic_limit_gb * (1024**3)
                             if subscription.traffic_limit_gb > 0
                             else 0,
@@ -5165,6 +5165,17 @@ async def admin_buy_subscription_execute(callback: types.CallbackQuery, db_user:
                             ),
                             active_internal_squads=subscription.connected_squads,
                         )
+
+                        # Истёкшей подписке при обновлении дату не шлём — иначе панель
+                        # затирает реальную дату окончания на "сейчас+минута" (см.
+                        # panel_expire_at).
+                        expire_at_update = panel_expire_at(
+                            subscription.end_date,
+                            is_active=subscription.is_active,
+                            creating=False,
+                        )
+                        if expire_at_update:
+                            update_kwargs['expire_at'] = expire_at_update
 
                         # Пустой список сквадов НЕ отправляем: `[]` в PATCH означает
                         # «снять все инбаунды», а пустота в connected_squads — это
@@ -5207,7 +5218,11 @@ async def admin_buy_subscription_execute(callback: types.CallbackQuery, db_user:
                     async with remnawave_service.get_api_client() as api:
                         create_kwargs = dict(
                             username=username,
-                            expire_at=subscription.end_date,
+                            expire_at=panel_expire_at(
+                                subscription.end_date,
+                                is_active=subscription.is_active,
+                                creating=True,
+                            ),
                             status=UserStatus.ACTIVE if subscription.is_active else UserStatus.DISABLED,
                             traffic_limit_bytes=subscription.traffic_limit_gb * (1024**3)
                             if subscription.traffic_limit_gb > 0

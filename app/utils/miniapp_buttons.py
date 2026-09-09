@@ -292,47 +292,6 @@ def build_subscription_extend_button(
     )
 
 
-SUBSCRIPTION_EXTEND_CALLBACK = 'subscription_extend'
-
-
-def build_subscription_extend_button(
-    text: str,
-    subscription_id: int | None = None,
-    *,
-    style: str | None = None,
-    icon_custom_emoji_id: str | None = None,
-) -> InlineKeyboardButton:
-    """Кнопка «Продлить подписку» для уведомлений — единая точка на весь бот.
-
-    Ветвление «мультитариф → ``se:{id}``, иначе ``subscription_extend``» жило
-    копипастой в шести уведомлениях, и в cabinet-режиме половина из них уводила
-    пользователя в бота: динамический ``se:{id}`` в ``CALLBACK_TO_CABINET_PATH``
-    отсутствует (id заранее неизвестен), помощник не находил путь и молча
-    отдавал callback-кнопку. Получалось, что в одиночном режиме уведомление
-    вело в кабинет, а в мультитарифном — в бота.
-
-    В cabinet-режиме мультитарифа кнопка открывает страницу продления ИМЕННО
-    той подписки, о которой уведомление: ``/subscriptions/{id}/renew``. Без id
-    (и в одиночном режиме) — обычный ``subscription_extend``.
-    """
-    if settings.is_multi_tariff_enabled() and subscription_id:
-        return build_miniapp_or_callback_button(
-            text=text,
-            callback_data=f'se:{subscription_id}',
-            cabinet_path=f'/subscriptions/{subscription_id}/renew',
-            style=style,
-            icon_custom_emoji_id=icon_custom_emoji_id,
-            style_key=SUBSCRIPTION_EXTEND_CALLBACK,
-        )
-
-    return build_miniapp_or_callback_button(
-        text=text,
-        callback_data=SUBSCRIPTION_EXTEND_CALLBACK,
-        style=style,
-        icon_custom_emoji_id=icon_custom_emoji_id,
-    )
-
-
 # Префикс startapp/маршрута для диплинка на конкретный тикет в админ-кабинете.
 # Должен совпадать с разбором на стороне фронта (bedolaga-cabinet): start_param
 # 'admin_ticket_<id>' и маршрут '/admin/tickets/<id>'.
