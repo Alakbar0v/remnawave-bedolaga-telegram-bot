@@ -193,6 +193,24 @@ async def _dispatch_update(
     await dispatcher.feed_update(bot, update)
 
 
+_ADMIN_RIGHTS_DEFAULTS = ('can_send_welcome_messages',)
+
+
+def _fill_missing_admin_rights(payload: Any) -> None:
+    """aiogram требует права админа, которые Telegram может не присылать — подставляем False."""
+    if not isinstance(payload, dict):
+        return
+    for key in ('chat_member', 'my_chat_member'):
+        event = payload.get(key)
+        if not isinstance(event, dict):
+            continue
+        for member_key in ('old_chat_member', 'new_chat_member'):
+            member = event.get(member_key)
+            if isinstance(member, dict) and member.get('status') == 'administrator':
+                for field in _ADMIN_RIGHTS_DEFAULTS:
+                    member.setdefault(field, False)
+
+
 def create_telegram_router(
     bot: Bot,
     dispatcher: Dispatcher,
@@ -220,6 +238,8 @@ def create_telegram_router(
         except Exception as error:  # pragma: no cover - defensive logging
             logger.error('Ошибка чтения Telegram webhook', error=error)
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='invalid_payload') from error
+
+        _fill_missing_admin_rights(payload)
 
         try:
             update = Update.model_validate(payload)
