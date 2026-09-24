@@ -15,37 +15,42 @@
 - `.gitignore` — файл
 - `.python-version` — файл
 - `.release-please-manifest.json` — файл
+- `CHANGELOG.md` — файл
+- `CONTRIBUTING.md` — файл
+- `Dockerfile` — файл
+- `LICENSE` — файл
+- `Makefile` — файл
+- `README.md` — файл
+- `SECURITY.md` — файл
 - `alembic.ini` — файл
 - `app/`
 - `assets/`
-- `CHANGELOG.md` — файл
-- `CONTRIBUTING.md` — файл
 - `docker-compose.local.yml` — файл
 - `docker-compose.yml` — файл
-- `Dockerfile` — файл
 - `docs/`
-- `LICENSE` — файл
 - `main.py` — Python-модуль
   Классы: `GracefulExit` (2 методов)
   Функции: `main`
-- `Makefile` — файл
 - `migrations/`
 - `pyproject.toml` — файл
-- `README.md` — файл
 - `release-please-config.json` — файл
 - `scripts/`
-- `SECURITY.md` — файл
 - `tests/`
 - `uv.lock` — файл
 - `vpn_logo.png` — файл
 
 ## .github
 
+- `.github/ISSUE_TEMPLATE/`
 - `.github/assets/`
 - `.github/codeql/`
 - `.github/dependabot.yml` — файл
-- `.github/ISSUE_TEMPLATE/`
 - `.github/workflows/`
+
+### .github/ISSUE_TEMPLATE
+
+- `.github/ISSUE_TEMPLATE/bug-bedolage.md` — файл
+- `.github/ISSUE_TEMPLATE/feat-bedolage.md` — файл
 
 ### .github/assets
 
@@ -59,11 +64,6 @@
 ### .github/codeql
 
 - `.github/codeql/codeql-config.yml` — файл
-
-### .github/ISSUE_TEMPLATE
-
-- `.github/ISSUE_TEMPLATE/bug-bedolage.md` — файл
-- `.github/ISSUE_TEMPLATE/feat-bedolage.md` — файл
 
 ### .github/workflows
 
@@ -600,8 +600,8 @@
 
 ##### app/cabinet/utils/fonts
 
-- `app/cabinet/utils/fonts/manrope-variable.ttf` — файл
 - `app/cabinet/utils/fonts/OFL.txt` — файл
+- `app/cabinet/utils/fonts/manrope-variable.ttf` — файл
 
 ### app/database
 
@@ -625,7 +625,7 @@
   Классы: нет
   Функции: `run_alembic_upgrade` — Run ``alembic upgrade head``, handling fresh and legacy databases., `stamp_alembic_head` — Stamp the DB as being at head without running migrations (for existing DBs).
 - `app/database/models.py` — Python-модуль
-  Классы: `AwareDateTime` (2 методов), `UserStatus`, `SubscriptionStatus`, `TransactionType`, `PromoCodeType`, `PaymentMethod`, `MainMenuButtonActionType`, `MainMenuButtonVisibility`, `WheelPrizeType`, `WheelSpinPaymentType`, `YooKassaPayment` (6 методов), `SavedPaymentMethod` (1 методов), `CryptoBotPayment` (5 методов), `AppleTransaction` (2 методов), `AppleIAPAccount` (1 методов), `AppleNotification` (1 методов), `AppleIAPAbuseEvent` (1 методов), `HeleketPayment` (5 методов), `MulenPayPayment` (2 методов), `Pal24Payment` (3 методов), `WataPayment` (2 методов), `PlategaPayment` (2 методов), `PlategaSubscription` (1 методов), `LavaSubscription` (1 методов), `CloudPaymentsPayment` (5 методов), `FreekassaPayment` (5 методов), `KassaAiPayment` (5 методов), `RioPayPayment` (5 методов), `SeverPayPayment` (5 методов), `PayPearPayment` (5 методов), `RollyPayPayment` (5 методов), `OverpayPayment` (5 методов), `AuraPayPayment` (5 методов), `EtoplatezhiPayment` (5 методов), `AntilopayPayment` (5 методов), `JupiterPayment` (5 методов), `DonutPayment` (5 методов), `LavaPayment` (5 методов), `CisPayPayment` (5 методов), `TabPayPayment` (5 методов), `ParityPayPayment` (5 методов), `PromoGroup` (3 методов), `UserPromoGroup` (1 методов), `Tariff` (21 методов), `PartnerStatus`, `User` (12 методов), `Subscription` (15 методов), `GraceAccessSessionModel`, `TrafficPurchase` (1 методов), `Transaction` (1 методов), `SubscriptionConversion` (2 методов), `PromoCode` (2 методов), `PromoCodeUse`, `CouponStatus`, `CouponBatch` (2 методов), `Coupon` (1 методов), `ReferralRewardType`, `ReferralRewardTrigger`, `ReferralRewardMode`, `ReferralRewardLevel` (1 методов), `ReferralEarning` (1 методов), `WithdrawalRequestStatus`, `WithdrawalRequest` (1 методов), `PartnerApplication`, `ReferralContest` (1 методов), `ReferralContestEvent` (1 методов), `ReferralContestVirtualParticipant` (1 методов), `ContestTemplate`, `ContestRound`, `ContestAttempt`, `Squad` (1 методов), `ServiceRule`, `PrivacyPolicy`, `PublicOffer`, `LegalConsent`, `RecurrentPayments`, `FaqSetting`, `FaqPage`, `SystemSetting`, `EmailTemplate`, `MonitoringLog`, `SentNotification`, `SubscriptionEvent`, `DiscountOffer`, `PromoOfferTemplate`, `SubscriptionTemporaryAccess`, `PromoOfferLog`, `BroadcastHistory`, `Poll`, `PollQuestion`, `PollOption`, `PollResponse`, `PollAnswer`, `ServerSquad` (3 методов), `SubscriptionServer`, `SupportAuditLog`, `UserMessage` (1 методов), `WelcomeText`, `PinnedMessage`, `AdvertisingCampaign` (4 методов), `AdvertisingCampaignRegistration` (1 методов), `TicketStatus`, `Ticket` (8 методов), `TicketMessage` (3 методов), `WebApiToken` (1 методов), `MainMenuButton` (3 методов), `MenuLayoutHistory` (1 методов), `ButtonClickLog` (1 методов), `Webhook` (1 методов), `WebhookDelivery` (1 методов), `CabinetRefreshToken` (4 методов), `WheelConfig` (1 методов), `WheelPrize` (1 методов), `WheelSpin` (3 методов), `TicketNotification` (1 методов), `PaymentMethodConfig` (1 методов), `RequiredChannel` (1 методов), `UserChannelSubscription` (1 методов), `AdminRole` (1 методов), `UserRole` (1 методов), `AccessPolicy` (1 методов), `AdminAuditLog` (1 методов), `LandingPage` (1 методов), `GuestPurchaseStatus`, `GuestPurchase` (1 методов), `NewsArticle` (1 методов), `NewsCategory` (1 методов), `NewsTag` (1 методов), `YandexClientIdMap`, `InfoPage`, `UserDeviceAlias`, `SystemErrorEvent`, `EmailQueueItem`, `ReachabilityBatch`, `ReachabilityJob`, `ReachabilityLeg`, `ReachabilityTargetPref`, `UserReminder` (1 методов), `UserReminderState`
+  Классы: `AwareDateTime` (2 методов), `UserStatus`, `SubscriptionStatus`, `TransactionType`, `PromoCodeType`, `PaymentMethod`, `MainMenuButtonActionType`, `MainMenuButtonVisibility`, `WheelPrizeType`, `WheelSpinPaymentType`, `YooKassaPayment` (6 методов), `SavedPaymentMethod` (1 методов), `CryptoBotPayment` (5 методов), `AppleTransaction` (2 методов), `AppleIAPAccount` (1 методов), `AppleNotification` (1 методов), `AppleIAPAbuseEvent` (1 методов), `HeleketPayment` (5 методов), `MulenPayPayment` (2 методов), `Pal24Payment` (3 методов), `WataPayment` (2 методов), `PlategaPayment` (2 методов), `PlategaSubscription` (1 методов), `LavaSubscription` (1 методов), `CloudPaymentsPayment` (5 методов), `FreekassaPayment` (5 методов), `KassaAiPayment` (5 методов), `RioPayPayment` (5 методов), `SeverPayPayment` (5 методов), `PayPearPayment` (5 методов), `RollyPayPayment` (5 методов), `OverpayPayment` (5 методов), `AuraPayPayment` (5 методов), `EtoplatezhiPayment` (5 методов), `AntilopayPayment` (5 методов), `JupiterPayment` (5 методов), `DonutPayment` (5 методов), `LavaPayment` (5 методов), `CisPayPayment` (5 методов), `TabPayPayment` (5 методов), `ParityPayPayment` (5 методов), `PromoGroup` (3 методов), `UserPromoGroup` (1 методов), `Tariff` (21 методов), `PartnerStatus`, `User` (12 методов), `Subscription` (15 методов), `GraceAccessSessionModel`, `TrafficPurchase` (1 методов), `Transaction` (1 методов), `SubscriptionConversion` (2 методов), `PromoCode` (2 методов), `PromoCodeUse`, `CouponStatus`, `CouponBatch` (2 методов), `Coupon` (1 методов), `ReferralRewardType`, `ReferralRewardTrigger`, `ReferralRewardMode`, `ReferralRewardLevel` (1 методов), `ReferralEarning` (1 методов), `WithdrawalRequestStatus`, `WithdrawalRequest` (1 методов), `PartnerApplication`, `ReferralContest` (1 методов), `ReferralContestEvent` (1 методов), `ReferralContestVirtualParticipant` (1 методов), `ContestTemplate`, `ContestRound`, `ContestAttempt`, `Squad` (1 методов), `ServiceRule`, `PrivacyPolicy`, `PublicOffer`, `LegalConsent`, `RecurrentPayments`, `FaqSetting`, `FaqPage`, `SystemSetting`, `EmailTemplate`, `MonitoringLog`, `SentNotification`, `SubscriptionEvent`, `DiscountOffer`, `PromoOfferTemplate`, `SubscriptionTemporaryAccess`, `PromoOfferLog`, `BroadcastHistory`, `Poll`, `PollQuestion`, `PollOption`, `PollResponse`, `PollAnswer`, `ServerSquad` (3 методов), `SubscriptionServer`, `SupportAuditLog`, `UserMessage` (1 методов), `WelcomeText`, `PinnedMessage`, `AdvertisingCampaign` (4 методов), `AdvertisingCampaignRegistration` (1 методов), `TicketStatus`, `Ticket` (8 методов), `TicketMessage` (3 методов), `WebApiToken` (1 методов), `MainMenuButton` (3 методов), `MenuLayoutHistory` (1 методов), `ButtonClickLog` (1 методов), `Webhook` (1 методов), `WebhookDelivery` (1 методов), `CabinetRefreshToken` (4 методов), `WheelConfig` (1 методов), `WheelPrize` (1 методов), `WheelSpin` (3 методов), `TicketNotification` (1 методов), `PaymentMethodConfig` (1 методов), `RequiredChannel` (1 методов), `UserChannelSubscription` (1 методов), `AdminRole` (1 методов), `UserRole` (1 методов), `AccessPolicy` (1 методов), `AdminAuditLog` (1 методов), `LandingPage` (1 методов), `GuestPurchaseStatus`, `GuestPurchase` (1 методов), `NewsArticle` (1 методов), `NewsCategory` (1 методов), `NewsTag` (1 методов), `YandexClientIdMap`, `TikTokClickIdMap`, `InfoPage`, `UserDeviceAlias`, `SystemErrorEvent`, `EmailQueueItem`, `ReachabilityBatch`, `ReachabilityJob`, `ReachabilityLeg`, `ReachabilityTargetPref`, `UserReminder` (1 методов), `UserReminderState`
   Функции: нет
 
 #### app/database/crud
@@ -797,7 +797,7 @@
   Функции: `get_squad_by_uuid`, `get_available_squads`, `create_squad`, `update_squad`
 - `app/database/crud/subscription.py` — Python-модуль
   Классы: нет
-  Функции: `generate_unique_short_id` — Generate a unique remnawave_short_id (6 hex chars) with collision check., `is_recently_updated_by_webhook` — Return True if subscription was updated by webhook within guard window., `calc_device_limit_on_tariff_switch` — Calculate device_limit when switching tariffs., `is_active_paid_subscription` — Return True if subscription is active, paid (non-trial), and not expired., `get_subscription_by_user_id` — Get primary subscription for user., `apply_trial_conversion_defaults` — Настройки, которые подписка получает, перестав быть триалом., `create_trial_subscription` — Создает триальную подписку., `resolve_trial_conversion_candidate` — Кандидат конверсии триала, каким его увидит ``create_paid_subscription``., `create_paid_subscription`, `replace_subscription` — Перезаписывает параметры существующей подписки пользователя., `reconcile_tariff_traffic_limit` — Вернуть тарифную подписку к условиям тарифа: база тарифа + активные докупки., `should_carry_trial_remaining_days` — Переносить ли остаток триальных дней на платную подписку при переходе., `extend_subscription` — Продлевает подписку на указанное количество дней., `add_subscription_traffic`, `add_subscription_devices`, `add_subscription_squad`, `remove_subscription_squad`, `decrement_subscription_server_counts` — Decrease server counters linked to the provided subscription., `update_subscription_autopay`, `deactivate_subscription`, `reset_subscription` — Полностью обнулить подписку «как будто пользователь её не оформлял», НЕ удаляя, `reactivate_subscription` — Реактивация подписки (например, после повторной подписки на канал или докупки трафика)., `get_expiring_subscriptions`, `get_expired_subscriptions`, `get_subscriptions_for_autopay`, `get_subscriptions_statistics`, `get_trial_statistics`, `wipe_trial_subscriptions` — Снимает доступ и удаляет переданные триал-подписки — единый код для ботовой, `reset_trials_for_users_without_paid_subscription` — Bulk-сброс истёкших триалов у неплативших (кнопка «Сбросить триалы» в боте)., `update_subscription_usage`, `get_all_subscriptions`, `get_subscriptions_batch` — Получает подписки пачками для синхронизации. Загружает связанных пользователей и тарифы., `add_subscription_servers`, `get_subscription_server_ids`, `remove_subscription_servers`, `expire_subscription`, `expire_subscription_if_still_due` — Погасить подписку, только если в базе она всё ещё ACTIVE с прошедшей датой., `check_and_update_subscription_status`, `create_subscription_no_commit` — Создает подписку без немедленного коммита для пакетной обработки, `create_subscription`, `create_pending_subscription` — Creates a pending subscription that will be activated after payment., `create_sbp_pending_subscription` — Заготовка подписки под СБП-оформление (покупка через Platega-рекуррент)., `create_pending_trial_subscription` — Creates a pending trial subscription. Wrapper for create_pending_subscription with is_trial=True., `activate_pending_subscription` — Активирует pending подписку пользователя, меняя её статус на ACTIVE., `activate_pending_trial_subscription` — Активирует pending триальную подписку по её ID после оплаты., `get_daily_subscriptions_for_charge` — Получает все суточные подписки, которые нужно обработать для списания., `get_disabled_daily_subscriptions_for_resume` — Получает список DISABLED суточных подписок, которые можно возобновить., `get_expired_daily_subscriptions_for_recovery` — Получает EXPIRED суточные подписки, которые были ошибочно экспайрены, `get_limited_daily_subscriptions_for_recovery` — Суточные подписки, застрявшие в LIMITED (панель зарезала их по лимиту трафика)., `pause_daily_subscription` — Приостанавливает суточную подписку (списание не будет происходить)., `resume_daily_subscription` — Возобновляет суточную подписку (списание продолжится)., `update_daily_charge_time` — Обновляет время последнего суточного списания и продлевает подписку на 1 день., `suspend_daily_subscription_insufficient_balance` — Приостанавливает подписку из-за недостатка баланса., `get_subscription_with_tariff` — Получает подписку пользователя с загруженным тарифом., `toggle_daily_subscription_pause` — Переключает состояние паузы суточной подписки., `get_active_subscriptions_by_user_id` — Get all active/trial/limited subscriptions for a user., `get_subscription_by_id_for_user` — Get subscription by ID with ownership check (IDOR protection)., `get_subscription_by_id` — Get subscription by ID (admin use only, no ownership check)., `get_subscription_by_user_and_tariff` — Get a subscription for a specific user+tariff combination., `get_alive_trial_subscription` — Alive (active/trial/limited) trial subscription of the user, if any., `deactivate_user_trial_subscriptions` — Deactivate all trial subscriptions for a user., `get_all_subscriptions_by_user_id` — Get all subscriptions for a user (any status).
+  Функции: `generate_unique_short_id` — Generate a unique remnawave_short_id (6 hex chars) with collision check., `is_recently_updated_by_webhook` — Return True if subscription was updated by webhook within guard window., `calc_device_limit_on_tariff_switch` — Calculate device_limit when switching tariffs., `is_active_paid_subscription` — Return True if subscription is active, paid (non-trial), and not expired., `user_has_active_subscription` — True if the user has a subscription that should block a new purchase., `get_subscription_by_user_id` — Get primary subscription for user., `apply_trial_conversion_defaults` — Настройки, которые подписка получает, перестав быть триалом., `create_trial_subscription` — Создает триальную подписку., `resolve_trial_conversion_candidate` — Кандидат конверсии триала, каким его увидит ``create_paid_subscription``., `create_paid_subscription`, `replace_subscription` — Перезаписывает параметры существующей подписки пользователя., `reconcile_tariff_traffic_limit` — Вернуть тарифную подписку к условиям тарифа: база тарифа + активные докупки., `should_carry_trial_remaining_days` — Переносить ли остаток триальных дней на платную подписку при переходе., `extend_subscription` — Продлевает подписку на указанное количество дней., `add_subscription_traffic`, `add_subscription_devices`, `add_subscription_squad`, `remove_subscription_squad`, `decrement_subscription_server_counts` — Decrease server counters linked to the provided subscription., `update_subscription_autopay`, `deactivate_subscription`, `reset_subscription` — Полностью обнулить подписку «как будто пользователь её не оформлял», НЕ удаляя, `reactivate_subscription` — Реактивация подписки (например, после повторной подписки на канал или докупки трафика)., `get_expiring_subscriptions`, `get_expired_subscriptions`, `get_subscriptions_for_autopay`, `get_subscriptions_statistics`, `get_trial_statistics`, `wipe_trial_subscriptions` — Снимает доступ и удаляет переданные триал-подписки — единый код для ботовой, `reset_trials_for_users_without_paid_subscription` — Bulk-сброс истёкших триалов у неплативших (кнопка «Сбросить триалы» в боте)., `update_subscription_usage`, `get_all_subscriptions`, `get_subscriptions_batch` — Получает подписки пачками для синхронизации. Загружает связанных пользователей и тарифы., `add_subscription_servers`, `get_subscription_server_ids`, `remove_subscription_servers`, `expire_subscription`, `expire_subscription_if_still_due` — Погасить подписку, только если в базе она всё ещё ACTIVE с прошедшей датой., `check_and_update_subscription_status`, `create_subscription_no_commit` — Создает подписку без немедленного коммита для пакетной обработки, `create_subscription`, `create_pending_subscription` — Creates a pending subscription that will be activated after payment., `create_sbp_pending_subscription` — Заготовка подписки под СБП-оформление (покупка через Platega-рекуррент)., `create_pending_trial_subscription` — Creates a pending trial subscription. Wrapper for create_pending_subscription with is_trial=True., `activate_pending_subscription` — Активирует pending подписку пользователя, меняя её статус на ACTIVE., `activate_pending_trial_subscription` — Активирует pending триальную подписку по её ID после оплаты., `get_daily_subscriptions_for_charge` — Получает все суточные подписки, которые нужно обработать для списания., `get_disabled_daily_subscriptions_for_resume` — Получает список DISABLED суточных подписок, которые можно возобновить., `get_expired_daily_subscriptions_for_recovery` — Получает EXPIRED суточные подписки, которые были ошибочно экспайрены, `get_limited_daily_subscriptions_for_recovery` — Суточные подписки, застрявшие в LIMITED (панель зарезала их по лимиту трафика)., `pause_daily_subscription` — Приостанавливает суточную подписку (списание не будет происходить)., `resume_daily_subscription` — Возобновляет суточную подписку (списание продолжится)., `update_daily_charge_time` — Обновляет время последнего суточного списания и продлевает подписку на 1 день., `suspend_daily_subscription_insufficient_balance` — Приостанавливает подписку из-за недостатка баланса., `get_subscription_with_tariff` — Получает подписку пользователя с загруженным тарифом., `toggle_daily_subscription_pause` — Переключает состояние паузы суточной подписки., `get_active_subscriptions_by_user_id` — Get all active/trial/limited subscriptions for a user., `get_subscription_by_id_for_user` — Get subscription by ID with ownership check (IDOR protection)., `get_subscription_by_id` — Get subscription by ID (admin use only, no ownership check)., `get_subscription_by_user_and_tariff` — Get a subscription for a specific user+tariff combination., `get_alive_trial_subscription` — Alive (active/trial/limited) trial subscription of the user, if any., `deactivate_user_trial_subscriptions` — Deactivate all trial subscriptions for a user., `get_all_subscriptions_by_user_id` — Get all subscriptions for a user (any status).
 - `app/database/crud/subscription_conversion.py` — Python-модуль
   Классы: нет
   Функции: `create_subscription_conversion`, `get_conversion_by_user_id`, `get_conversion_statistics`, `get_users_had_trial_count`
@@ -2197,7 +2197,7 @@
   Функции: `caption_exceeds_telegram_limit` — Check if text exceeds Telegram's caption limit (1024 parsed chars)., `get_logo_media` — Возвращает кешированный file_id или FSInputFile для логотипа., `is_qr_message`, `append_privacy_hint`, `prepare_privacy_safe_kwargs`, `is_privacy_restricted_error`, `is_topic_required_error` — Проверяет, является ли ошибка связанной с топиками/форумами., `patch_message_methods`
 - `app/utils/miniapp_buttons.py` — Python-модуль
   Классы: нет
-  Функции: `strip_leading_emoji` — Удалить ведущий юникод-emoji + следующий пробел. Безопасно для текста без emoji., `build_main_menu_button` — Always-callback button for "Main Menu" / "Главное меню" navigation., `build_cabinet_url` — Join ``MINIAPP_CUSTOM_URL`` with an optional *path* segment., `build_miniapp_or_callback_button` — Create a button that opens the cabinet miniapp or falls back to a callback., `build_subscription_extend_button` — Кнопка «Продлить подписку» для уведомлений — единая точка на весь бот., `build_subscription_extend_button` — Кнопка «Продлить подписку» для уведомлений — единая точка на весь бот., `build_miniapp_startapp_url` — Собрать t.me Mini App deep link, открывающий кабинет в ЛЮБОМ типе чата., `build_admin_ticket_cabinet_button` — Кнопка «открыть тикет в админ-кабинете» для уведомления о тикете.
+  Функции: `strip_leading_emoji` — Удалить ведущий юникод-emoji + следующий пробел. Безопасно для текста без emoji., `build_main_menu_button` — Always-callback button for "Main Menu" / "Главное меню" navigation., `build_cabinet_url` — Join ``MINIAPP_CUSTOM_URL`` with an optional *path* segment., `build_miniapp_or_callback_button` — Create a button that opens the cabinet miniapp or falls back to a callback., `build_subscription_extend_button` — Кнопка «Продлить подписку» для уведомлений — единая точка на весь бот., `build_miniapp_startapp_url` — Собрать t.me Mini App deep link, открывающий кабинет в ЛЮБОМ типе чата., `build_admin_ticket_cabinet_button` — Кнопка «открыть тикет в админ-кабинете» для уведомления о тикете.
 - `app/utils/notification_prefs.py` — Python-модуль
   Классы: нет
   Функции: `get_user_notification_pref` — Get a single notification preference for user., `is_subscription_expiry_enabled` — Check if subscription expiry notifications are enabled for user., `get_subscription_expiry_days` — Get the number of days before expiry to notify., `is_traffic_warning_enabled` — Check if traffic warning notifications are enabled for user., `get_traffic_warning_percent` — Get the traffic usage percentage threshold for warning., `is_balance_low_enabled` — Check if low balance notifications are enabled for user., `get_balance_low_threshold` — Get the low balance threshold in kopeks., `is_news_enabled` — Check if news notifications are enabled for user., `is_promo_offers_enabled` — Check if promo offer notifications are enabled for user., `filter_users_by_broadcast_category` — Отсеивает отписавшихся от рассылки этой категории.
@@ -2971,6 +2971,33 @@
   Классы: нет
   Функции: `upgrade`, `downgrade`
 - `migrations/alembic/versions/0127_user_reminders.py` — Python-модуль
+  Классы: нет
+  Функции: `upgrade`, `downgrade`
+- `migrations/alembic/versions/custom_0001_add_tiktok_click_id_map.py` — Python-модуль
+  Классы: нет
+  Функции: `upgrade`, `downgrade`
+- `migrations/alembic/versions/custom_0002_add_ttp_to_tiktok_click_id_map.py` — Python-модуль
+  Классы: нет
+  Функции: `upgrade`, `downgrade`
+- `migrations/alembic/versions/custom_0003_add_ip_user_agent_to_tiktok_click_id_map.py` — Python-модуль
+  Классы: нет
+  Функции: `upgrade`, `downgrade`
+- `migrations/alembic/versions/custom_0004_guest_purchase_idempotency.py` — Python-модуль
+  Классы: нет
+  Функции: `upgrade`, `downgrade`
+- `migrations/alembic/versions/custom_merge_0106.py` — Python-модуль
+  Классы: нет
+  Функции: `upgrade`, `downgrade`
+- `migrations/alembic/versions/custom_merge_0114.py` — Python-модуль
+  Классы: нет
+  Функции: `upgrade`, `downgrade`
+- `migrations/alembic/versions/custom_merge_0116.py` — Python-модуль
+  Классы: нет
+  Функции: `upgrade`, `downgrade`
+- `migrations/alembic/versions/custom_merge_0118.py` — Python-модуль
+  Классы: нет
+  Функции: `upgrade`, `downgrade`
+- `migrations/alembic/versions/custom_merge_0127.py` — Python-модуль
   Классы: нет
   Функции: `upgrade`, `downgrade`
 
@@ -3805,6 +3832,7 @@
 
 #### tests/fixtures/bschek
 
+- `tests/fixtures/bschek/README.md` — файл
 - `tests/fixtures/bschek/account.json` — файл
 - `tests/fixtures/bschek/auth_bad.json` — файл
 - `tests/fixtures/bschek/auth_none.json` — файл
@@ -3826,15 +3854,15 @@
 - `tests/fixtures/bschek/p2_replay.json` — файл
 - `tests/fixtures/bschek/p3_bare_mts.json` — файл
 - `tests/fixtures/bschek/p4_bare_mts_any.json` — файл
+- `tests/fixtures/bschek/pF_fleet.json` — файл
+- `tests/fixtures/bschek/pF_replay_0.json` — файл
+- `tests/fixtures/bschek/pF_replay_late.json` — файл
+- `tests/fixtures/bschek/pF_same_key_while_running.json` — файл
 - `tests/fixtures/bschek/p_blocked.json` — файл
 - `tests/fixtures/bschek/p_dpi_off.json` — файл
 - `tests/fixtures/bschek/p_empty_ops.json` — файл
 - `tests/fixtures/bschek/p_legacy_alias.json` — файл
 - `tests/fixtures/bschek/p_noidem.json` — файл
-- `tests/fixtures/bschek/pF_fleet.json` — файл
-- `tests/fixtures/bschek/pF_replay_0.json` — файл
-- `tests/fixtures/bschek/pF_replay_late.json` — файл
-- `tests/fixtures/bschek/pF_same_key_while_running.json` — файл
 - `tests/fixtures/bschek/pv_11_targets.json` — файл
 - `tests/fixtures/bschek/pv_all_any.json` — файл
 - `tests/fixtures/bschek/pv_all_default.json` — файл
@@ -3862,7 +3890,6 @@
 - `tests/fixtures/bschek/pv_two_targets.json` — файл
 - `tests/fixtures/bschek/pv_unknown_op.json` — файл
 - `tests/fixtures/bschek/pv_url_target.json` — файл
-- `tests/fixtures/bschek/README.md` — файл
 - `tests/fixtures/bschek/rl2_a.json` — файл
 - `tests/fixtures/bschek/rl2_b.json` — файл
 - `tests/fixtures/bschek/s1_poll_00.json` — файл
@@ -3870,8 +3897,6 @@
 - `tests/fixtures/bschek/s1_poll_03.json` — файл
 - `tests/fixtures/bschek/s1_second.json` — файл
 - `tests/fixtures/bschek/s1_submit.json` — файл
-- `tests/fixtures/bschek/s_cancel_done.json` — файл
-- `tests/fixtures/bschek/s_notfound.json` — файл
 - `tests/fixtures/bschek/sB_after_0.json` — файл
 - `tests/fixtures/bschek/sB_cancel.json` — файл
 - `tests/fixtures/bschek/sB_cancel_again.json` — файл
@@ -3882,6 +3907,8 @@
 - `tests/fixtures/bschek/sC_submit.json` — файл
 - `tests/fixtures/bschek/sD_poll_37.json` — файл
 - `tests/fixtures/bschek/sD_submit.json` — файл
+- `tests/fixtures/bschek/s_cancel_done.json` — файл
+- `tests/fixtures/bschek/s_notfound.json` — файл
 - `tests/fixtures/bschek/sv_25.json` — файл
 - `tests/fixtures/bschek/sv_all_any.json` — файл
 - `tests/fixtures/bschek/sv_cfo_any_sni.json` — файл
@@ -3899,12 +3926,6 @@
 - `tests/fixtures/bschek/v2_replay.json` — файл
 - `tests/fixtures/bschek/v2_status.json` — файл
 - `tests/fixtures/bschek/v2_submit.json` — файл
-- `tests/fixtures/bschek/v_cancel_done.json` — файл
-- `tests/fixtures/bschek/v_noconfigs.json` — файл
-- `tests/fixtures/bschek/v_notfound.json` — файл
-- `tests/fixtures/bschek/v_suburl.json` — файл
-- `tests/fixtures/bschek/v_too_large.json` — файл
-- `tests/fixtures/bschek/v_too_many.json` — файл
 - `tests/fixtures/bschek/vA_poll_02.json` — файл
 - `tests/fixtures/bschek/vA_submit.json` — файл
 - `tests/fixtures/bschek/vB_poll_34.json` — файл
@@ -3917,6 +3938,12 @@
 - `tests/fixtures/bschek/vD_submit.json` — файл
 - `tests/fixtures/bschek/vE_poll_01.json` — файл
 - `tests/fixtures/bschek/vE_submit.json` — файл
+- `tests/fixtures/bschek/v_cancel_done.json` — файл
+- `tests/fixtures/bschek/v_noconfigs.json` — файл
+- `tests/fixtures/bschek/v_notfound.json` — файл
+- `tests/fixtures/bschek/v_suburl.json` — файл
+- `tests/fixtures/bschek/v_too_large.json` — файл
+- `tests/fixtures/bschek/v_too_many.json` — файл
 
 ### tests/handlers
 
