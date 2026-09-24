@@ -3121,7 +3121,25 @@ class MonitoringService:
                     )
                     if new_status and new_status != record.status:
                         previous_status = record.status
-                        await sub_crud.update_lava_subscription(db, record, status=new_status)
+                        if new_status == 'ACTIVE' and record.free_days > 0 and record.trial_activated_at is None:
+                            # Потерянный вебхук activated: без этого запись
+                            # стала бы ACTIVE (юзер заплатил 1₽ верификации),
+                            # но триальный доступ так и не был бы выдан.
+                            #
+                            # record пришёл из list_lava_subscriptions_by_statuses
+                            # (SELECT без блокировки) — если ровно сейчас настоящий
+                            # вебхук activated обрабатывается конкурентно (он
+                            # блокирует строку через FOR UPDATE), наш локальный
+                            # record.trial_activated_at устарел и всё ещё None.
+                            # Перечитываем с блокировкой и проверяем заново —
+                            # иначе триал выдался бы дважды.
+                            from app.services.payment.lava import _LavaRecurrentAgent
+
+                            locked_record = await sub_crud.get_lava_subscription_by_id_for_update(db, record.id)
+                            if locked_record and locked_record.trial_activated_at is None:
+                                await _LavaRecurrentAgent()._activate_lava_trial(db, locked_record)
+                        else:
+                            await sub_crud.update_lava_subscription(db, record, status=new_status)
                         logger.info(
                             'Lava-подписка реконсилирована',
                             local_id=record.id,

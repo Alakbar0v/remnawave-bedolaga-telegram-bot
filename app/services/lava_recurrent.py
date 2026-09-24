@@ -20,6 +20,12 @@ LOCAL_ACTIVE_STATUSES = ('PENDING', 'ACTIVE', 'PAST_DUE')
 CHARGE_SUCCESS = {'success'}
 CHARGE_FAILED = {'cancel', 'cancelled', 'error', 'failed', 'expired'}
 
+# Подтверждение привязки карты к продукту с freeDays — это НЕ списание оплаты
+# подписки: сумма (обычно 1₽) верификационная, credited в вебхуке приходит
+# None. Используется только для триальных привязок (LavaSubscription.free_days
+# > 0), чтобы выдать доступ на freeDays до реального первого списания.
+CHARGE_ACTIVATED = {'activated'}
+
 # period enum продукта Lava -> количество дней в периоде.
 # periodDays продукт отдаёт сам, но при его отсутствии считаем по enum.
 PRODUCT_PERIOD_DAYS: dict[str, int] = {

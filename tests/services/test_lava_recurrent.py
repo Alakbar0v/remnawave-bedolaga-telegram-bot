@@ -632,6 +632,148 @@ def test_real_lava_status_values_are_normalized():
     assert lr.lava_reconcile_decision('ACTIVE', lr.normalize_remote_status('deactivated'), 1) == 'CANCELLED'
 
 
+# ----------------------------------------------------------- триал (freeDays)
+
+
+async def _seed_trial_pending(db, *, free_days: int = 3, product_id: str | None = PRODUCT_ID):
+    """Черновик триальной привязки: PENDING + is_trial, доступа ещё нет."""
+    now = datetime.now(UTC)
+    user = User(
+        telegram_id=777,
+        username='trialuser',
+        first_name='Trial',
+        status=UserStatus.ACTIVE.value,
+        language='ru',
+        balance_kopeks=0,
+    )
+    db.add(user)
+    await db.commit()
+
+    tariff = Tariff(
+        name='Триальный',
+        is_active=True,
+        device_limit=1,
+        traffic_limit_gb=0,
+        period_prices={'30': 10000},
+        lava_product_id=product_id,
+        trial_card_product_id=product_id,
+    )
+    db.add(tariff)
+    await db.commit()
+
+    subscription = Subscription(
+        user_id=user.id,
+        tariff_id=tariff.id,
+        status=SubscriptionStatus.PENDING.value,
+        is_trial=True,
+        start_date=now,
+        end_date=now,
+        autopay_enabled=False,
+        remnawave_short_id='shorttrial',
+    )
+    db.add(subscription)
+    await db.commit()
+
+    from app.database.crud import lava_subscription as sub_crud
+
+    order_id = lr.build_recurrent_order_id(subscription.id, 'trial')
+    record = await sub_crud.create_lava_subscription(
+        db,
+        user_id=user.id,
+        subscription_id=subscription.id,
+        tariff_id=tariff.id,
+        lava_product_id=product_id or PRODUCT_ID,
+        lava_consumer_id='consumer-1',
+        order_id=order_id,
+        charge_days=30,
+        amount_kopeks=10000,
+        redirect_url='https://pay.lava/trial',
+        lava_subscription_id='lava-trial-sub-1',
+        free_days=free_days,
+    )
+    return user, tariff, subscription, record
+
+
+def _activated(order_id: str, invoice_id: str = 'inv-activated') -> dict:
+    return {'order_id': order_id, 'invoice_id': invoice_id, 'status': 'activated', 'amount': 1.0, 'credited': None}
+
+
+async def test_activated_webhook_grants_trial_access(monkeypatch):
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription, record = await _seed_trial_pending(db, free_days=3)
+        agent, _ = _agent(monkeypatch)
+        monkeypatch.setattr(settings, 'RESET_TRAFFIC_ON_PAYMENT', False)
+
+        assert await agent.process_lava_subscription_callback(db, _activated(record.order_id)) is True
+
+        await db.refresh(subscription)
+        await db.refresh(record)
+        assert subscription.status == SubscriptionStatus.ACTIVE.value
+        assert subscription.is_trial is True
+        assert subscription.end_date > datetime.now(UTC) + timedelta(days=2)
+        assert record.status == 'ACTIVE'
+        assert record.trial_activated_at is not None
+        # Верификационная сумма — не оплата подписки, транзакция не создаётся
+        assert record.charges_success == 0
+
+
+async def test_repeated_activated_webhook_does_not_extend_twice(monkeypatch):
+    """Lava ретраит недоставленный вебхук до 5 раз — двойной выдачи быть не должно."""
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription, record = await _seed_trial_pending(db, free_days=3)
+        agent, _ = _agent(monkeypatch)
+        monkeypatch.setattr(settings, 'RESET_TRAFFIC_ON_PAYMENT', False)
+
+        await agent.process_lava_subscription_callback(db, _activated(record.order_id))
+        await db.refresh(subscription)
+        end_after_first = subscription.end_date
+
+        await agent.process_lava_subscription_callback(db, _activated(record.order_id, 'inv-retry'))
+        await db.refresh(subscription)
+
+        assert subscription.end_date == end_after_first
+
+
+async def test_activated_webhook_is_noop_for_non_trial_binding(monkeypatch):
+    """free_days == 0 — обычная привязка, activated остаётся промежуточным статусом."""
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription = await _seed(db)
+        agent, service = _agent(monkeypatch)
+
+        created = await agent.create_lava_recurrent_subscription(
+            db, user_id=user.id, subscription=subscription, tariff=tariff
+        )
+        order_id = service.subscribe_recurrent.await_args.kwargs['order_id']
+        end_before = subscription.end_date
+
+        assert await agent.process_lava_subscription_callback(db, _activated(order_id)) is True
+
+        await db.refresh(subscription)
+        from app.database.crud import lava_subscription as sub_crud
+
+        record = await sub_crud.get_lava_subscription_by_id(db, created['local_id'])
+        assert subscription.end_date == end_before
+        assert record.status == 'PENDING'
+        assert record.trial_activated_at is None
+
+
+async def test_first_full_charge_after_trial_clears_is_trial(monkeypatch):
+    """freeDays истекли, пришло настоящее списание — триал становится обычной подпиской."""
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription, record = await _seed_trial_pending(db, free_days=3)
+        agent, _ = _agent(monkeypatch)
+        monkeypatch.setattr(settings, 'RESET_TRAFFIC_ON_PAYMENT', False)
+
+        await agent.process_lava_subscription_callback(db, _activated(record.order_id))
+
+        assert await agent.process_lava_subscription_callback(db, _charge(record.order_id, 'inv-full')) is True
+
+        await db.refresh(subscription)
+        await db.refresh(record)
+        assert subscription.is_trial is False
+        assert record.charges_success == 1
+
+
 async def test_purchase_rejects_trial_and_foreign_tariff(monkeypatch):
     """Привязкой нельзя конвертировать триал и оплачивать чужой тариф."""
     from app.services.payment.lava import purchase_tariff_with_lava_recurring
@@ -680,3 +822,395 @@ async def test_charge_returns_a_zeroed_tariff_subscription_to_the_tariff_limit(m
 
         await db.refresh(subscription)
         assert subscription.traffic_limit_gb == 50
+
+
+# ------------------------------------------------ оформление триала (freeDays)
+
+
+def _agent_with_trial_product(monkeypatch, *, free_days: int = 3, price: float = 100.0):
+    service = SimpleNamespace(
+        list_recurrent_products=AsyncMock(
+            return_value=[{'id': PRODUCT_ID, 'periodDays': 30, 'price': price, 'freeDays': free_days}]
+        ),
+        create_recurrent_consumer=AsyncMock(return_value={'data': {}}),
+        subscribe_recurrent=AsyncMock(
+            return_value={
+                'data': {'subscriptionId': 'lava-trial-sub-1', 'url': 'https://pay.lava/trial', 'amount': price}
+            }
+        ),
+        unsubscribe_recurrent=AsyncMock(return_value={'data': {'unsubscribed': True}}),
+        get_recurrent_subscription_status=AsyncMock(return_value={'data': {'status': 'active'}}),
+    )
+    monkeypatch.setattr(lava_module, 'lava_service', service)
+    return lava_module._LavaRecurrentAgent(), service
+
+
+async def test_create_recurrent_subscription_with_trial_product_stores_free_days(monkeypatch):
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription = await _seed(db)
+        tariff.trial_card_product_id = PRODUCT_ID
+        await db.commit()
+        agent, service = _agent_with_trial_product(monkeypatch, free_days=3)
+
+        result = await agent.create_lava_recurrent_subscription(
+            db, user_id=user.id, subscription=subscription, tariff=tariff, use_trial_product=True
+        )
+
+        assert result['status'] == 'PENDING'
+        assert service.subscribe_recurrent.await_args.kwargs['product_id'] == PRODUCT_ID
+
+        from app.database.crud import lava_subscription as sub_crud
+
+        record = await sub_crud.get_active_lava_subscription_by_subscription(db, subscription.id)
+        assert record.free_days == 3
+
+
+async def test_trial_product_without_free_days_is_rejected(monkeypatch):
+    """Триальный продукт без freeDays не выдал бы доступ по вебхуку activated."""
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription = await _seed(db)
+        tariff.trial_card_product_id = PRODUCT_ID
+        await db.commit()
+        agent, service = _agent_with_trial_product(monkeypatch, free_days=0)
+
+        with pytest.raises(ValueError, match='freeDays'):
+            await agent.create_lava_recurrent_subscription(
+                db, user_id=user.id, subscription=subscription, tariff=tariff, use_trial_product=True
+            )
+        service.subscribe_recurrent.assert_not_awaited()
+
+
+async def test_start_lava_trial_creates_pending_subscription_and_binds_card(monkeypatch):
+    from app.services.payment.lava import start_lava_trial
+
+    monkeypatch.setattr(type(settings), 'is_lava_recurrent_enabled', lambda self: True)
+
+    async with memory_session(monkeypatch, TABLES) as db:
+        user = User(
+            telegram_id=888,
+            username='freshuser',
+            first_name='Fresh',
+            status=UserStatus.ACTIVE.value,
+            language='ru',
+            balance_kopeks=0,
+        )
+        db.add(user)
+        await db.commit()
+
+        tariff = Tariff(
+            name='Триальный',
+            is_active=True,
+            is_trial_available=True,
+            device_limit=1,
+            traffic_limit_gb=0,
+            period_prices={'30': 10000},
+            lava_product_id=PRODUCT_ID,
+            trial_card_product_id=PRODUCT_ID,
+            allowed_squads=['test-squad'],
+        )
+        db.add(tariff)
+        await db.commit()
+
+        _agent_with_trial_product(monkeypatch, free_days=3)
+        await db.refresh(user, attribute_names=['subscriptions'])
+
+        result = await start_lava_trial(db, user=user, tariff=tariff)
+
+        assert result['redirect_url'] == 'https://pay.lava/trial'
+
+        subscription = await db.get(Subscription, result['subscription_id'])
+        assert subscription.status == SubscriptionStatus.PENDING.value
+        assert subscription.is_trial is True
+
+        from app.database.crud import lava_subscription as sub_crud
+
+        record = await sub_crud.get_active_lava_subscription_by_subscription(db, subscription.id)
+        assert record.free_days == 3
+
+
+async def test_start_lava_trial_rejects_already_used_trial(monkeypatch):
+    from app.services.payment.lava import start_lava_trial
+
+    monkeypatch.setattr(type(settings), 'is_lava_recurrent_enabled', lambda self: True)
+
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription = await _seed(db)
+        tariff.trial_card_product_id = PRODUCT_ID
+        await db.commit()
+        _agent_with_trial_product(monkeypatch, free_days=3)
+        await db.refresh(user, attribute_names=['subscriptions'])
+
+        with pytest.raises(ValueError, match='использован'):
+            await start_lava_trial(db, user=user, tariff=tariff)
+
+
+async def test_start_lava_trial_rejects_tariff_without_trial_product(monkeypatch):
+    from app.services.payment.lava import start_lava_trial
+
+    monkeypatch.setattr(type(settings), 'is_lava_recurrent_enabled', lambda self: True)
+
+    async with memory_session(monkeypatch, TABLES) as db:
+        user = User(
+            telegram_id=889,
+            username='freshuser2',
+            first_name='Fresh',
+            status=UserStatus.ACTIVE.value,
+            language='ru',
+            balance_kopeks=0,
+        )
+        db.add(user)
+        await db.commit()
+
+        tariff = Tariff(
+            name='Без триала',
+            is_active=True,
+            is_trial_available=True,
+            device_limit=1,
+            traffic_limit_gb=0,
+            period_prices={'30': 10000},
+            lava_product_id=PRODUCT_ID,
+        )
+        db.add(tariff)
+        await db.commit()
+
+        _agent_with_trial_product(monkeypatch, free_days=3)
+        await db.refresh(user, attribute_names=['subscriptions'])
+
+        with pytest.raises(ValueError, match='триальный продукт'):
+            await start_lava_trial(db, user=user, tariff=tariff)
+
+
+async def test_start_lava_trial_rejects_tariff_that_is_not_the_trial_tariff(monkeypatch):
+    """tariff приходит из callback_data пользователя — крафченный tariff_id с
+    забытым trial_card_product_id на непубличном тарифе не должен давать
+    цену триала в обход is_trial_available."""
+    from app.services.payment.lava import start_lava_trial
+
+    monkeypatch.setattr(type(settings), 'is_lava_recurrent_enabled', lambda self: True)
+
+    async with memory_session(monkeypatch, TABLES) as db:
+        user = User(
+            telegram_id=890,
+            username='freshuser3',
+            first_name='Fresh',
+            status=UserStatus.ACTIVE.value,
+            language='ru',
+            balance_kopeks=0,
+        )
+        db.add(user)
+        await db.commit()
+
+        # Официальный триальный тариф — другой, is_trial_available=True на нём
+        official_trial = Tariff(
+            name='Официальный триал',
+            is_active=True,
+            is_trial_available=True,
+            device_limit=1,
+            traffic_limit_gb=0,
+            period_prices={'30': 10000},
+        )
+        db.add(official_trial)
+
+        # У этого тарифа есть trial_card_product_id, но is_trial_available=False
+        rogue_tariff = Tariff(
+            name='Премиум (не для триала)',
+            is_active=True,
+            is_trial_available=False,
+            device_limit=5,
+            traffic_limit_gb=0,
+            period_prices={'30': 100000},
+            trial_card_product_id=PRODUCT_ID,
+        )
+        db.add(rogue_tariff)
+        await db.commit()
+
+        _agent_with_trial_product(monkeypatch, free_days=3)
+        await db.refresh(user, attribute_names=['subscriptions'])
+
+        with pytest.raises(ValueError, match='недоступен'):
+            await start_lava_trial(db, user=user, tariff=rogue_tariff)
+
+
+async def test_start_lava_trial_accepts_each_of_several_trial_tariffs(monkeypatch):
+    """Несколько тарифов могут быть is_trial_available=True одновременно —
+    start_lava_trial должен принимать любой из них, а не только
+    последний обновлённый (regression against the old .limit(1) singleton)."""
+    from app.services.payment.lava import start_lava_trial
+
+    monkeypatch.setattr(type(settings), 'is_lava_recurrent_enabled', lambda self: True)
+
+    async with memory_session(monkeypatch, TABLES) as db:
+        first_tariff = Tariff(
+            name='Триал 1',
+            is_active=True,
+            is_trial_available=True,
+            device_limit=1,
+            traffic_limit_gb=0,
+            period_prices={'30': 10000},
+            trial_card_product_id=PRODUCT_ID,
+            allowed_squads=['test-squad'],
+        )
+        second_tariff = Tariff(
+            name='Триал 2',
+            is_active=True,
+            is_trial_available=True,
+            device_limit=2,
+            traffic_limit_gb=0,
+            period_prices={'30': 10000},
+            trial_card_product_id=PRODUCT_ID,
+            allowed_squads=['test-squad'],
+        )
+        db.add_all([first_tariff, second_tariff])
+        await db.commit()
+
+        from app.database.crud.tariff import resolve_trial_tariffs
+
+        resolved = await resolve_trial_tariffs(db)
+        assert {t.id for t in resolved} == {first_tariff.id, second_tariff.id}
+
+        for tariff in (first_tariff, second_tariff):
+            user = User(
+                telegram_id=900 + tariff.id,
+                username=f'trialuser{tariff.id}',
+                first_name='Fresh',
+                status=UserStatus.ACTIVE.value,
+                language='ru',
+                balance_kopeks=0,
+            )
+            db.add(user)
+            await db.commit()
+
+            # Unique lava_subscription_id per iteration — the DB row is unique
+            # on it, and both trial tariffs share the same PRODUCT_ID.
+            _, service = _agent_with_trial_product(monkeypatch, free_days=3)
+            service.subscribe_recurrent.return_value = {
+                'data': {
+                    'subscriptionId': f'lava-trial-sub-{tariff.id}',
+                    'url': 'https://pay.lava/trial',
+                    'amount': 100.0,
+                }
+            }
+            await db.refresh(user, attribute_names=['subscriptions'])
+
+            result = await start_lava_trial(db, user=user, tariff=tariff)
+            subscription = await db.get(Subscription, result['subscription_id'])
+            assert subscription.tariff_id == tariff.id
+
+
+async def test_toggling_trial_flag_on_one_tariff_does_not_affect_another(monkeypatch):
+    """Regression: admin toggle used to mass-clear is_trial_available on ALL
+    tariffs (set_trial_tariff/clear_trial_tariff). Per-tariff update_tariff
+    must leave siblings untouched, so several tariffs can be trial-eligible
+    at once."""
+    from app.database.crud.tariff import update_tariff
+
+    async with memory_session(monkeypatch, TABLES) as db:
+        first_tariff = Tariff(
+            name='Триал A',
+            is_active=True,
+            is_trial_available=True,
+            device_limit=1,
+            traffic_limit_gb=0,
+            period_prices={'30': 10000},
+        )
+        second_tariff = Tariff(
+            name='Триал B',
+            is_active=True,
+            is_trial_available=True,
+            device_limit=1,
+            traffic_limit_gb=0,
+            period_prices={'30': 10000},
+        )
+        db.add_all([first_tariff, second_tariff])
+        await db.commit()
+
+        await update_tariff(db, first_tariff, is_trial_available=False)
+
+        await db.refresh(second_tariff)
+        assert second_tariff.is_trial_available is True
+        assert first_tariff.is_trial_available is False
+
+
+async def test_activated_webhook_ignored_after_real_charge_already_happened(monkeypatch):
+    """Сильно запоздавшая повторная доставка activated (retry вне обычного
+    окна Lava) не должна выдавать free_days поверх уже оплаченной подписки."""
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription, record = await _seed_trial_pending(db, free_days=3)
+        agent, _ = _agent(monkeypatch)
+        monkeypatch.setattr(settings, 'RESET_TRAFFIC_ON_PAYMENT', False)
+
+        # Настоящее списание после freeDays уже прошло
+        await agent.process_lava_subscription_callback(db, _charge(record.order_id, 'inv-full'))
+        await db.refresh(subscription)
+        await db.refresh(record)
+        end_after_charge = subscription.end_date
+
+        # Сильно запоздавший retry activated
+        activated = await agent._activate_lava_trial(db, record)
+
+        await db.refresh(subscription)
+        assert activated is False
+        assert subscription.end_date == end_after_charge
+
+
+async def test_reconciler_does_not_double_activate_on_concurrent_webhook(monkeypatch):
+    """list_lava_subscriptions_by_statuses читает без блокировки: если ровно
+    в этот момент настоящий вебхук activated успел обработаться (со своим
+    FOR UPDATE) конкурентно, реконсилятор обязан перечитать запись с
+    блокировкой и не выдавать free_days повторно поверх уже отработавшего
+    вебхука."""
+    from app.services.monitoring_service import MonitoringService
+
+    monkeypatch.setattr(type(settings), 'is_lava_enabled', lambda self: True)
+
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription, record = await _seed_trial_pending(db, free_days=3)
+
+        # "Вебхук" уже отработал конкурентно — это реальное состояние в БД
+        webhook_activated_at = datetime.now(UTC)
+        record.trial_activated_at = webhook_activated_at
+        record.status = 'ACTIVE'
+        subscription.status = SubscriptionStatus.ACTIVE.value
+        subscription.end_date = datetime.now(UTC) + timedelta(days=3)
+        await db.commit()
+        end_after_webhook = subscription.end_date
+
+        # Но реконсилятор держит УСТАРЕВШИЙ снимок записи (PENDING, ещё не
+        # активирован) — ровно то, что list_lava_subscriptions_by_statuses
+        # успела бы вернуть мгновением раньше, до коммита вебхука.
+        stale_snapshot = SimpleNamespace(
+            id=record.id,
+            subscription_id=record.subscription_id,
+            user_id=record.user_id,
+            status='PENDING',
+            free_days=3,
+            charges_success=0,
+            amount_kopeks=record.amount_kopeks,
+            trial_activated_at=None,
+            lava_subscription_id=record.lava_subscription_id,
+            order_id=record.order_id,
+            created_at=record.created_at,
+        )
+
+        import app.database.crud.lava_subscription as sub_crud_module
+        import app.services.lava_service as lava_service_module
+
+        monkeypatch.setattr(
+            sub_crud_module, 'list_lava_subscriptions_by_statuses', AsyncMock(return_value=[stale_snapshot])
+        )
+        monkeypatch.setattr(sub_crud_module, 'list_recently_cancelled_lava_subscriptions', AsyncMock(return_value=[]))
+        monkeypatch.setattr(
+            lava_service_module,
+            'lava_service',
+            SimpleNamespace(
+                get_recurrent_subscription_status=AsyncMock(return_value={'data': {'status': 'activated'}})
+            ),
+        )
+
+        service = MonitoringService()
+        await service._reconcile_lava_subscriptions(db)
+
+        await db.refresh(subscription)
+        await db.refresh(record)
+        assert subscription.end_date == end_after_webhook
+        assert record.trial_activated_at == webhook_activated_at

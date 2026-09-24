@@ -30,6 +30,7 @@ async def create_lava_subscription(
     redirect_url: str | None,
     lava_subscription_id: str | None,
     status: str = 'PENDING',
+    free_days: int = 0,
 ) -> LavaSubscription:
     record = LavaSubscription(
         user_id=user_id,
@@ -43,6 +44,7 @@ async def create_lava_subscription(
         redirect_url=redirect_url,
         lava_subscription_id=lava_subscription_id,
         status=status,
+        free_days=free_days,
     )
     db.add(record)
     await db.commit()

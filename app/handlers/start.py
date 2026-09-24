@@ -1,4 +1,3 @@
-import asyncio
 import html
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -691,14 +690,20 @@ async def _activate_pending_trial(
     answer_func: Callable[..., Any],
     bot: 'Bot | None' = None,
 ) -> None:
-    """Активирует БЕСПЛАТНЫЙ триал по диплинку /start trial (rich-меню).
+    """По диплинку /start trial (rich-меню) показывает оффер триала с выбором
+    тарифа и кнопкой привязки карты — вместо мгновенной бесплатной
+    активации.
 
-    Вызывается перед показом главного меню, чтобы меню сразу отрисовало новую
-    подписку. Все гейты повторяют cabinet POST /trial и activate_trial бота:
-    триал включён, не отключён для auth_type юзера, не использован ранее.
-    Платный триал (TRIAL_PAYMENT_ENABLED + цена) этим путём не активируется —
-    rich-меню для него ведёт на оплату в миниапп. Must be called BEFORE
-    state.clear().
+    Вызывается перед показом главного меню. Гейты и экран повторяют
+    ``show_trial_tariffs`` (главный вход триала из меню, callback
+    ``menu_trial``): триал включён, не отключён для auth_type юзера, не
+    использован ранее, список тарифов строит тот же
+    ``build_trial_choose_screen`` — все тарифы с ``is_trial_available``
+    (``resolve_trial_tariffs``), даже если он состоит из одного.
+    ``tariff.trial_card_product_id`` (сегодня — Lava) сюда не примешивается,
+    это уровень оплаты, а не доступности триала: если у тарифа продукт не
+    настроен, ``start_lava_trial`` вернёт понятную ошибку при нажатии на
+    кнопку. Must be called BEFORE state.clear().
     """
     try:
         fresh_state = await state.get_data()
@@ -710,116 +715,26 @@ async def _activate_pending_trial(
             return
         if settings.is_trial_disabled_for_user(getattr(user, 'auth_type', None)):
             return
-        if settings.is_trial_paid_activation_enabled():
-            return
         if user.is_trial_already_used():
             return
 
-        # Параметры триала: из триального тарифа (is_trial_available / TRIAL_TARIFF_ID),
-        # иначе — из настроек; сквады — из тарифа, иначе случайный триальный сквад.
-        from app.database.crud.server_squad import get_effective_tariff_squad_uuids, get_random_trial_squad_uuid
-        from app.database.crud.subscription import create_trial_subscription
-        from app.database.crud.tariff import get_tariff_by_id, get_trial_tariff
+        from app.database.crud.tariff import resolve_trial_tariffs
+        from app.handlers.subscription.purchase import build_trial_choose_screen
 
-        trial_traffic_limit = settings.TRIAL_TRAFFIC_LIMIT_GB
-        trial_device_limit = settings.TRIAL_DEVICE_LIMIT
-        trial_squads: list[str] = []
-        tariff_id_for_trial = None
+        # is_active намеренно не проверяется — триальный тариф может быть
+        # скрыт из обычной покупки, но доступен для триала.
+        trial_tariffs = await resolve_trial_tariffs(db)
+        if not trial_tariffs:
+            # Ни один тариф не помечен is_trial_available, TRIAL_TARIFF_ID тоже
+            # не настроен — привязывать карту не к чему, молча пропускаем.
+            return
 
-        trial_tariff = await get_trial_tariff(db)
-        if not trial_tariff:
-            trial_tariff_id = settings.get_trial_tariff_id()
-            if trial_tariff_id > 0:
-                trial_tariff = await get_tariff_by_id(db, trial_tariff_id)
-        if trial_tariff:
-            trial_traffic_limit = trial_tariff.traffic_limit_gb
-            trial_device_limit = trial_tariff.device_limit
-            trial_squads = await get_effective_tariff_squad_uuids(db, trial_tariff.allowed_squads)
-            tariff_id_for_trial = trial_tariff.id
-        if not trial_squads:
-            trial_squad_uuid = await get_random_trial_squad_uuid(db)
-            trial_squads = [trial_squad_uuid] if trial_squad_uuid else []
-
-        subscription = await create_trial_subscription(
-            db=db,
-            user_id=user.id,
-            duration_days=settings.TRIAL_DURATION_DAYS,
-            traffic_limit_gb=trial_traffic_limit,
-            device_limit=trial_device_limit,
-            connected_squads=trial_squads or None,
-            tariff_id=tariff_id_for_trial,
-        )
-        logger.info('Триал активирован по диплинку rich-меню', user_id=user.id, subscription_id=subscription.id)
-
-        subscription_service = SubscriptionService()
-        panel_user = None
-        try:
-            if subscription_service.is_configured:
-                panel_user = await subscription_service.create_remnawave_user(db, subscription)
-                await db.refresh(subscription)
-        except Exception as error:
-            logger.error('Не удалось создать Remnawave-пользователя для триала по диплинку', error=error)
-        if subscription_service.is_configured and panel_user is None:
-            # create_remnawave_user проглатывает ошибки и возвращает None — без
-            # ретрая юзер не появился бы в панели (паттерн cabinet POST /trial).
-            from app.services.remnawave_retry_queue import remnawave_retry_queue
-
-            remnawave_retry_queue.enqueue(subscription_id=subscription.id, user_id=user.id, action='create')
-            logger.warning(
-                'Триал по диплинку без Remnawave-пользователя — поставлен в очередь ретраев',
-                user_id=user.id,
-                subscription_id=subscription.id,
-            )
-
-        # Админ-уведомление об активации (оно же пишет SubscriptionEvent для
-        # таймлайна активности) — как в activate_trial бота и cabinet POST /trial.
-        if bot is not None:
-            try:
-                from app.services.admin_notification_service import AdminNotificationService
-
-                await AdminNotificationService(bot).send_trial_activation_notification(db, user, subscription)
-            except Exception as notify_error:
-                logger.warning(
-                    'Не удалось отправить админ-уведомление об активации триала по диплинку',
-                    error=str(notify_error),
-                    user_id=user.id,
-                )
-
-        # TikTok/Yandex trial conversion — этот путь (диплинк /start trial из
-        # ссылки «Активировать триал» в главном меню) раньше не отправлял
-        # StartTrial/trial-add, в отличие от всех остальных мест активации
-        # триала (activate_trial бота, cabinet POST /trial, webapi miniapp,
-        # оплата триала через YooKassa/CryptoBot/Platega/Stars).
-        try:
-            from app.services import tiktok_events_service as tiktok_events
-
-            tiktok_events.spawn_bg(tiktok_events.fire_trial_bg(user.id))
-        except Exception as exc:
-            logger.debug('Не удалось отправить TikTok trial событие для пользователя', user_id=user.id, exc=exc)
-
-        try:
-            from app.services import yandex_offline_conv_service as yandex_conv
-
-            yandex_conv.spawn_bg(yandex_conv.fire_trial_bg(user.id))
-        except Exception as exc:
-            logger.debug('Не удалось отправить Yandex trial событие для пользователя', user_id=user.id, exc=exc)
-    except Exception:
-        logger.exception('Не удалось активировать триал по диплинку', user_id=getattr(user, 'id', None))
-        return
-
-    try:
         texts = get_texts(user.language)
-        confirmation = await answer_func(
-            texts.t('MAIN_MENU_RICH_TRIAL_ACTIVATED', '🎉 <b>Пробная подписка активирована!</b>'),
-            parse_mode=ParseMode.HTML,
-        )
-        # Подтверждение эфемерное: новая подписка и так видна в меню ниже.
-        if confirmation is not None and getattr(confirmation, 'bot', None) is not None:
-            asyncio.create_task(
-                _delete_message_later(confirmation.bot, confirmation.chat.id, confirmation.message_id, delay=30)
-            )
+        text, keyboard = build_trial_choose_screen(texts, trial_tariffs)
+        await answer_func(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
     except Exception:
-        logger.exception('Триал активирован, но подтверждение не отправилось', user_id=user.id)
+        logger.exception('Не удалось показать оффер триала по диплинку', user_id=getattr(user, 'id', None))
+        return
 
 
 async def _claim_phantom_user(

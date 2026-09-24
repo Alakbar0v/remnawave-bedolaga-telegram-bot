@@ -2763,6 +2763,63 @@ async def create_sbp_pending_subscription(
     return subscription
 
 
+async def create_trial_draft_subscription(
+    db: AsyncSession,
+    user_id: int,
+    tariff: Tariff,
+) -> Subscription:
+    """Черновик триала под оплату картой/СБП новой ветки (сегодня — Lava).
+
+    Провайдеро-нейтральна: не пишет ничего специфичного для конкретного
+    провайдера, только резервирует запись под тариф — вызывается из
+    ``start_lava_trial`` (карта) и ``start_lava_trial_sbp`` (СБП).
+
+    В отличие от ``create_sbp_pending_subscription`` создаётся в PENDING, а не
+    EXPIRED: это ровно тот «неоплаченный черновик триала», который
+    ``Subscription.is_pending_trial`` уже умеет не считать израсходованным
+    триалом (см. ``User.is_trial_already_used``) — брошенная привязка карты
+    не сжигает пользователю единственную попытку взять триал. Доступ не
+    выдаётся до вебхука ``status=activated`` (см.
+    ``LavaPaymentMixin._activate_lava_trial``), который переводит запись в
+    ACTIVE и продлевает на ``freeDays`` продукта.
+    """
+    squads = list(tariff.allowed_squads or [])
+    if not squads:
+        from app.database.crud.server_squad import get_all_server_squads
+
+        all_servers, _ = await get_all_server_squads(db, available_only=True)
+        squads = [s.squad_uuid for s in all_servers if s.squad_uuid]
+
+    now = datetime.now(UTC)
+    short_id = await generate_unique_short_id(db)
+    subscription = Subscription(
+        user_id=user_id,
+        status=SubscriptionStatus.PENDING.value,
+        is_trial=True,
+        start_date=now,
+        end_date=now,
+        traffic_limit_gb=tariff.traffic_limit_gb,
+        device_limit=tariff.device_limit,
+        connected_squads=squads,
+        tariff_id=tariff.id,
+        autopay_enabled=False,
+        autopay_days_before=settings.DEFAULT_AUTOPAY_DAYS_BEFORE,
+        remnawave_short_id=short_id,
+    )
+
+    db.add(subscription)
+    await db.commit()
+    await db.refresh(subscription)
+
+    logger.info(
+        '🎁 Создан Lava-триал черновик (активируется вебхуком activated)',
+        user_id=user_id,
+        subscription_id=subscription.id,
+        tariff_id=tariff.id,
+    )
+    return subscription
+
+
 # Обратная совместимость: алиас для триальной подписки
 async def create_pending_trial_subscription(
     db: AsyncSession,

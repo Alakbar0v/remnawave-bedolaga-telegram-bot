@@ -60,6 +60,7 @@ class TariffListItem(BaseModel):
     lava_product_id: str | None = None
     # Свой тег панельного пользователя (побеждает общие TRIAL/PAID); None = общий
     panel_tag: str | None = None
+    trial_card_product_id: str | None = None
     allow_traffic_topup: bool = True
     show_in_gift: bool = True
     traffic_limit_gb: int
@@ -124,6 +125,7 @@ class TariffDetailResponse(BaseModel):
     lava_product_id: str | None = None
     # Свой тег панельного пользователя (побеждает общие TRIAL/PAID); None = общий
     panel_tag: str | None = None
+    trial_card_product_id: str | None = None
     # Режим сброса трафика
     traffic_reset_mode: str | None = None  # DAY, WEEK, MONTH, MONTH_ROLLING, NO_RESET, None = глобальная настройка
     # Внешний сквад RemnaWave
@@ -194,6 +196,8 @@ class TariffCreateRequest(BaseModel):
     panel_tag: str | None = Field(None, max_length=64)
     # Дни триала на тарифе; None = глобальный TRIAL_DURATION_DAYS
     trial_duration_days: int | None = Field(None, ge=1)
+    # UUID второго продукта Lava — с freeDays, для платного триала через привязку карты
+    trial_card_product_id: str | None = Field(None, max_length=255)
     # Режим сброса трафика
     traffic_reset_mode: str | None = None  # DAY, WEEK, MONTH, MONTH_ROLLING, NO_RESET, None = глобальная настройка
     # Внешний сквад RemnaWave
@@ -249,6 +253,7 @@ class TariffUpdateRequest(BaseModel):
     panel_tag: str | None = Field(None, max_length=64)
     # Дни триала на тарифе; None = глобальный TRIAL_DURATION_DAYS
     trial_duration_days: int | None = Field(None, ge=1)
+    trial_card_product_id: str | None = Field(None, max_length=255)
     # Режим сброса трафика
     traffic_reset_mode: str | None = None  # DAY, WEEK, MONTH, MONTH_ROLLING, NO_RESET, None = глобальная настройка
     # Внешний сквад RemnaWave

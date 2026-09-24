@@ -772,6 +772,13 @@ class LavaSubscription(Base):
     charges_success = Column(Integer, nullable=False, default=0)
     charges_failed = Column(Integer, nullable=False, default=0)
 
+    # freeDays продукта на момент оформления; >0 = привязка под платный триал
+    # (см. trial_card_product_id у Tariff), 0 = обычная привязка с полным списанием.
+    free_days = Column(Integer, nullable=False, default=0)
+    # Момент обработки вебхука status=activated — идемпотентность выдачи
+    # триального доступа (Lava ретраит вебхук до 5 раз).
+    trial_activated_at = Column(AwareDateTime(), nullable=True)
+
     created_at = Column(AwareDateTime(), default=func.now())
     updated_at = Column(AwareDateTime(), default=func.now(), onupdate=func.now())
 
@@ -2049,6 +2056,11 @@ class Tariff(Base):
     # UUID продукта Lava для рекуррентных подписок: цена и периодичность списаний
     # задаются в кабинете Lava, здесь только привязка тарифа к продукту.
     lava_product_id = Column(String(255), nullable=True)
+    # UUID продукта провайдера карточного триала (сегодня — второй продукт из
+    # кабинета Lava, с freeDays) для платного триала через привязку карты
+    # (1₽ верификация сейчас, полная сумма через freeDays). Имя колонки
+    # провайдеро-нейтральное — при смене провайдера меняется только значение.
+    trial_card_product_id = Column(String(255), nullable=True)
 
     # Произвольное количество дней
     custom_days_enabled = Column(Boolean, default=False, nullable=False)  # Разрешить произвольное кол-во дней
@@ -2354,9 +2366,7 @@ class User(Base):
         """
         if self.has_had_paid_subscription and self.trial_reset_at is None:
             return True
-        return any(
-            sub.status != SubscriptionStatus.PENDING.value for sub in (self.subscriptions or [])
-        )
+        return any(sub.status != SubscriptionStatus.PENDING.value for sub in (self.subscriptions or []))
 
     transactions = relationship('Transaction', back_populates='user')
     referral_earnings = relationship('ReferralEarning', foreign_keys='ReferralEarning.user_id', back_populates='user')

@@ -8,7 +8,7 @@ Covers all three render/grant surfaces:
   3. show_trial_offer / activate_trial handlers
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiogram.types import CallbackQuery, Message
@@ -126,3 +126,72 @@ async def test_activate_trial_blocks_when_duration_zero():
         user.is_trial_already_used.assert_not_called()
     finally:
         settings.TRIAL_DURATION_DAYS = orig
+
+
+@pytest.mark.asyncio
+async def test_show_trial_tariffs_blocks_when_duration_zero():
+    """menu_trial теперь ведёт сюда напрямую — тот же гейт, что был у activate_trial."""
+    from app.handlers.subscription import purchase
+
+    cb, user, db = _make_cb_user_db()
+    orig = settings.TRIAL_DURATION_DAYS
+    try:
+        settings.TRIAL_DURATION_DAYS = 0
+        await purchase.show_trial_tariffs(cb, user, db)
+        cb.message.edit_text.assert_awaited_once()
+        user.is_trial_already_used.assert_not_called()
+    finally:
+        settings.TRIAL_DURATION_DAYS = orig
+
+
+@pytest.mark.asyncio
+async def test_show_trial_tariffs_blocks_when_already_used():
+    from app.handlers.subscription import purchase
+
+    cb, user, db = _make_cb_user_db()
+    user.is_trial_already_used = MagicMock(return_value=True)
+
+    await purchase.show_trial_tariffs(cb, user, db)
+
+    cb.answer.assert_awaited_once()
+    cb.message.edit_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_show_trial_tariffs_blocks_when_restricted():
+    from app.handlers.subscription import purchase
+
+    cb, user, db = _make_cb_user_db()
+    user.restriction_subscription = True
+    user.restriction_reason = 'test'
+
+    await purchase.show_trial_tariffs(cb, user, db)
+
+    cb.message.edit_text.assert_awaited_once()
+    user.is_trial_already_used.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_show_trial_confirm_shows_card_button_without_calling_lava():
+    """Выбор тарифа — отдельный шаг от оплаты: Lava API не дёргается сразу."""
+    from app.handlers.subscription import purchase
+
+    cb, user, db = _make_cb_user_db()
+    cb.data = 'trial_pick:42'
+
+    fake_tariff = MagicMock()
+    fake_tariff.id = 42
+    fake_tariff.is_active = True
+    fake_tariff.name = 'Тестовый'
+    fake_tariff.traffic_limit_gb = 100
+    fake_tariff.device_limit = 3
+
+    import app.database.crud.tariff as tariff_crud
+
+    with patch.object(tariff_crud, 'get_tariff_by_id', AsyncMock(return_value=fake_tariff)):
+        await purchase.show_trial_confirm(cb, user, db)
+
+    cb.message.edit_text.assert_awaited_once()
+    _, kwargs = cb.message.edit_text.call_args
+    callbacks = [btn.callback_data for row in kwargs['reply_markup'].inline_keyboard for btn in row]
+    assert 'trial_card_pay:42' in callbacks

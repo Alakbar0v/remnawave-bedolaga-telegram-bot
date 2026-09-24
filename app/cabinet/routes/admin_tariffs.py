@@ -135,6 +135,7 @@ async def list_tariffs(
                 daily_price_kopeks=tariff.daily_price_kopeks,
                 lava_product_id=tariff.lava_product_id,
                 panel_tag=tariff.panel_tag,
+                trial_card_product_id=tariff.trial_card_product_id,
                 allow_traffic_topup=tariff.allow_traffic_topup,
                 show_in_gift=tariff.show_in_gift,
                 traffic_limit_gb=tariff.traffic_limit_gb,
@@ -276,6 +277,7 @@ async def get_tariff(
         lava_product_id=tariff.lava_product_id,
         panel_tag=tariff.panel_tag,
         trial_duration_days=tariff.trial_duration_days,
+        trial_card_product_id=tariff.trial_card_product_id,
         # Режим сброса трафика
         traffic_reset_mode=tariff.traffic_reset_mode,
         # Внешний сквад
@@ -339,6 +341,7 @@ async def create_new_tariff(
         lava_product_id=request.lava_product_id,
         panel_tag=request.panel_tag,
         trial_duration_days=request.trial_duration_days,
+        trial_card_product_id=request.trial_card_product_id,
         # Режим сброса трафика
         traffic_reset_mode=request.traffic_reset_mode,
         # Внешний сквад
@@ -440,6 +443,8 @@ async def update_existing_tariff(
         updates['is_daily'] = request.is_daily
     if request.lava_product_id is not None:
         updates['lava_product_id'] = request.lava_product_id.strip() or None
+    if request.trial_card_product_id is not None:
+        updates['trial_card_product_id'] = request.trial_card_product_id.strip() or None
     if request.daily_price_kopeks is not None:
         updates['daily_price_kopeks'] = request.daily_price_kopeks
     # Режим сброса трафика (None допускается как значение для сброса к глобальной настройке)
@@ -553,8 +558,10 @@ async def toggle_trial_tariff(
 ):
     """Toggle tariff trial availability.
 
-    When enabling trial on a tariff, removes trial flag from all other tariffs
-    (only one tariff can be the trial tariff at a time).
+    Several tariffs can be trial-eligible independently of each other —
+    toggling one does not affect the flag on any other tariff. The bot's
+    Lava trial flow (``resolve_trial_tariffs``) shows all of them and lets
+    the user pick.
     """
     tariff = await get_tariff_by_id(db, tariff_id)
     if not tariff:
@@ -564,14 +571,6 @@ async def toggle_trial_tariff(
         )
 
     new_status = not tariff.is_trial_available
-
-    if new_status:
-        # При включении триала - снимаем флаг со ВСЕХ тарифов, затем ставим на текущий
-        # Это гарантирует, что триальным будет только один тариф
-        await db.execute(Tariff.__table__.update().values(is_trial_available=False))
-        await db.commit()
-        # Обновляем объект тарифа после массового обновления
-        await db.refresh(tariff)
 
     await update_tariff(db, tariff, is_trial_available=new_status)
 

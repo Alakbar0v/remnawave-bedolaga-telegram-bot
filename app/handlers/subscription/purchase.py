@@ -19,7 +19,7 @@ from app.database.crud.subscription import (
 )
 from app.database.crud.transaction import create_transaction
 from app.database.crud.user import subtract_user_balance
-from app.database.models import PaymentMethod, Subscription, SubscriptionStatus, TransactionType, User
+from app.database.models import PaymentMethod, Subscription, SubscriptionStatus, Tariff, TransactionType, User
 from app.keyboards.inline import (
     CARD_ICON_CUSTOM_EMOJI_ID,
     CHAIN_ICON_CUSTOM_EMOJI_ID,
@@ -798,6 +798,293 @@ def _get_trial_payment_keyboard(language: str, can_pay_from_balance: bool = Fals
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
+def build_trial_choose_screen(
+    texts: Any,
+    trial_tariffs: list[Tariff],
+    *,
+    back_callback: str = 'back_to_menu',
+) -> tuple[str, types.InlineKeyboardMarkup]:
+    """Текст и клавиатура экрана выбора триального тарифа.
+
+    Провайдер оплаты (сегодня — Lava, карта/СБП) на этом экране ещё не
+    выбран, поэтому имя и коллбэки провайдеро-нейтральны — см. ``trial_pick:``.
+
+    Общий для главного входа (``show_trial_tariffs``, callback
+    ``menu_trial``) и диплинка ``/start trial`` (``_activate_pending_trial``
+    в ``app.handlers.start``) — оба показывают один и тот же список тарифов,
+    помеченных ``is_trial_available`` (``resolve_trial_tariffs``), даже если
+    он состоит из одного тарифа: поведение должно быть одинаковым независимо
+    от точки входа.
+    """
+    buttons = [
+        [types.InlineKeyboardButton(text=tariff.name, callback_data=f'trial_pick:{tariff.id}')]
+        for tariff in trial_tariffs
+    ]
+    buttons.append([types.InlineKeyboardButton(text=texts.BACK, callback_data=back_callback)])
+
+    text = texts.t(
+        'TRIAL_CHOOSE_TARIFF',
+        '🎁 <b>Пробный период</b>\n\nВыберите тариф. Спишется 1 ₽ для проверки, доступ откроется сразу.',
+    )
+    return text, types.InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@error_handler
+async def show_trial_tariffs(
+    callback: types.CallbackQuery,
+    db_user: User,
+    db: AsyncSession,
+):
+    """Список тарифов для триала (главный вход, кнопка '🎁 Пробная подписка' в
+    главном меню, callback ``menu_trial``).
+
+    Список строится по признаку ``is_trial_available`` (``resolve_trial_tariffs``
+    — все помеченные тарифы, не один), а НЕ по наличию продукта у провайдера
+    карточного триала: доступность триала и способ его оплаты — разные
+    уровни. Провайдер (``tariff.trial_card_product_id``, сегодня Lava)
+    появляется только на следующем шаге, как способ оплаты для уже выбранного
+    тарифа (см. ``start_trial_card``); если у тарифа он не настроен —
+    ``start_lava_trial`` вернёт понятную ошибку, а не молчаливый сбой.
+
+    Гейты (ограничение на покупку, отключённый триал, уже использован)
+    повторяют то, что раньше делал ``activate_trial`` — тот путь больше не
+    вызывается с этого экрана.
+    """
+    texts = get_texts(db_user.language)
+
+    # Проверка ограничения на покупку/продление подписки
+    if getattr(db_user, 'restriction_subscription', False):
+        reason = html.escape(getattr(db_user, 'restriction_reason', None) or 'Действие ограничено администратором')
+        support_url = settings.get_support_contact_url()
+        keyboard = []
+        if support_url:
+            keyboard.append([types.InlineKeyboardButton(text='🆘 Обжаловать', url=support_url)])
+        keyboard.append([types.InlineKeyboardButton(text=texts.BACK, callback_data='subscription')])
+
+        await callback.message.edit_text(
+            f'🚫 <b>Активация подписки ограничена</b>\n\n{reason}\n\n'
+            'Если вы считаете это ошибкой, вы можете обжаловать решение.',
+            reply_markup=types.InlineKeyboardMarkup(inline_keyboard=keyboard),
+        )
+        await callback.answer()
+        return
+
+    # Триал отключён глобально (нулевая длительность) либо для этого типа пользователя
+    if settings.TRIAL_DURATION_DAYS <= 0 or settings.is_trial_disabled_for_user(
+        getattr(db_user, 'auth_type', 'telegram')
+    ):
+        await callback.message.edit_text(
+            texts.t('TRIAL_DISABLED_FOR_USER_TYPE', 'Пробный период недоступен'),
+            reply_markup=get_back_keyboard(db_user.language),
+        )
+        await callback.answer()
+        return
+
+    if db_user.is_trial_already_used():
+        await callback.answer(texts.TRIAL_ALREADY_USED, show_alert=True)
+        return
+
+    from app.database.crud.tariff import resolve_trial_tariffs
+
+    # is_active намеренно не фильтруется — триальный тариф может быть скрыт
+    # из обычной покупки, но оставаться доступным для триала (см. докстринг
+    # resolve_trial_tariffs / get_trial_tariff).
+    trial_tariffs = await resolve_trial_tariffs(db)
+
+    if not trial_tariffs:
+        await callback.answer(
+            texts.t('TRIAL_DISABLED_FOR_USER_TYPE', 'Пробный период недоступен'),
+            show_alert=True,
+        )
+        return
+
+    text, keyboard = build_trial_choose_screen(texts, trial_tariffs)
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
+    await callback.answer()
+
+
+@error_handler
+async def show_trial_confirm(
+    callback: types.CallbackQuery,
+    db_user: User,
+    db: AsyncSession,
+):
+    """Подтверждение выбранного тарифа перед оплатой триала.
+
+    Зеркало confirm-экрана обычной покупки тарифа
+    (``tariff_purchase.get_tariff_confirm_keyboard``) — выбор тарифа не
+    запускает оплату сам по себе, для этого нужно отдельное нажатие на
+    способ оплаты: '💳 Карта' (рекуррент, freeDays, сегодня через Lava) либо,
+    если настроена разовая цена активации, '📱 СБП' (без автопродления, см.
+    ``start_lava_trial_sbp``).
+    """
+    texts = get_texts(db_user.language)
+    tariff_id = int(callback.data.split(':')[1])
+
+    from app.database.crud.tariff import get_tariff_by_id
+    from app.services.trial_activation_service import get_trial_activation_charge_amount
+
+    tariff = await get_tariff_by_id(db, tariff_id)
+    if not tariff or not tariff.is_active:
+        await callback.answer(texts.t('TARIFF_PURCHASE_UNAVAILABLE', 'Тариф недоступен'), show_alert=True)
+        return
+
+    text = texts.t(
+        'TRIAL_CONFIRM_TARIFF',
+        '🎁 <b>{tariff_name}</b>\n\n'
+        '📊 Трафик: {traffic}\n'
+        '📱 Устройств: {devices}\n\n'
+        'Спишется 1 ₽ для проверки, доступ откроется сразу.',
+    ).format(
+        tariff_name=html.escape(tariff.name),
+        traffic=texts.format_traffic(tariff.traffic_limit_gb),
+        devices=tariff.device_limit,
+    )
+    buttons = [
+        [
+            types.InlineKeyboardButton(
+                text=texts.t('LAVA_TRIAL_PURCHASE_BUTTON', 'Карта'),
+                icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
+                callback_data=f'trial_card_pay:{tariff.id}',
+            )
+        ],
+    ]
+    if settings.is_lava_sbp_enabled() and get_trial_activation_charge_amount() > 0:
+        buttons.append(
+            [
+                types.InlineKeyboardButton(
+                    text=texts.t('LAVA_SBP_PURCHASE_BUTTON', 'СБП'),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
+                    callback_data=f'trial_sbp_pay:{tariff.id}',
+                )
+            ]
+        )
+    buttons.append([types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_trial')])
+
+    await callback.message.edit_text(
+        text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode='HTML'
+    )
+    await callback.answer()
+
+
+@error_handler
+async def start_trial_card(
+    callback: types.CallbackQuery,
+    db_user: User,
+    db: AsyncSession,
+):
+    """Оформление платного триала через привязку карты (сегодня — Lava, freeDays продукт)."""
+    texts = get_texts(db_user.language)
+    tariff_id = int(callback.data.split(':')[1])
+
+    from app.database.crud.tariff import get_tariff_by_id
+
+    tariff = await get_tariff_by_id(db, tariff_id)
+    if not tariff or not tariff.is_active:
+        await callback.answer(texts.t('TARIFF_PURCHASE_UNAVAILABLE', 'Тариф недоступен'), show_alert=True)
+        return
+
+    from app.services.payment.lava import start_lava_trial
+
+    try:
+        result = await start_lava_trial(db, user=db_user, tariff=tariff)
+    except ValueError as error:
+        await callback.answer(str(error), show_alert=True)
+        return
+    except Exception:
+        await callback.answer(
+            texts.t('LAVA_RECURRING_ENABLE_ERROR', '❌ Не удалось подключить автопродление Lava. Попробуйте позже.'),
+            show_alert=True,
+        )
+        return
+
+    redirect_url = result.get('redirect_url')
+    text = texts.t(
+        'TRIAL_CARD_ENABLE_SUCCESS',
+        '🎁 <b>Пробный период по карте</b>\n\nСпишется 1 ₽ для проверки, доступ откроется сразу.',
+    )
+
+    buttons = []
+    if redirect_url:
+        buttons.append(
+            [
+                types.InlineKeyboardButton(
+                    text=texts.t('LAVA_RECURRING_PAY_BUTTON', 'Оплатить'),
+                    icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
+                    url=redirect_url,
+                )
+            ]
+        )
+    buttons.append([types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_trial')])
+
+    await callback.message.edit_text(
+        text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode='HTML'
+    )
+    await callback.answer()
+
+
+@error_handler
+async def start_trial_sbp(
+    callback: types.CallbackQuery,
+    db_user: User,
+    db: AsyncSession,
+):
+    """Разовая оплата триала через СБП (сегодня — Lava) — без привязки карты и автопродления.
+
+    В отличие от ``start_trial_card`` (freeDays-продукт, рекуррент) — оплата
+    полная и разовая, доступ на весь триальный период выдаётся сразу после
+    вебхука об оплате (см. ``start_lava_trial_sbp`` /
+    ``LavaPaymentMixin._finalize_lava_trial_sbp_purchase``).
+    """
+    texts = get_texts(db_user.language)
+    tariff_id = int(callback.data.split(':')[1])
+
+    from app.database.crud.tariff import get_tariff_by_id
+
+    tariff = await get_tariff_by_id(db, tariff_id)
+    if not tariff or not tariff.is_active:
+        await callback.answer(texts.t('TARIFF_PURCHASE_UNAVAILABLE', 'Тариф недоступен'), show_alert=True)
+        return
+
+    from app.services.payment.lava import start_lava_trial_sbp
+
+    try:
+        result = await start_lava_trial_sbp(db, user=db_user, tariff=tariff)
+    except ValueError as error:
+        await callback.answer(str(error), show_alert=True)
+        return
+    except Exception:
+        await callback.answer(
+            texts.t('LAVA_RECURRING_ENABLE_ERROR', '❌ Не удалось оплатить картой. Попробуйте еще раз.'),
+            show_alert=True,
+        )
+        return
+
+    payment_url = result.get('payment_url')
+    text = texts.t(
+        'TRIAL_SBP_ENABLE_SUCCESS',
+        '🎁 <b>Пробный период по СБП</b>\n\nОплатите по кнопке ниже — доступ откроется сразу после оплаты.',
+    )
+
+    buttons = []
+    if payment_url:
+        buttons.append(
+            [
+                types.InlineKeyboardButton(
+                    text=texts.t('LAVA_SBP_PAY_BUTTON', 'Оплатить'),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
+                    url=payment_url,
+                )
+            ]
+        )
+    buttons.append([types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_trial')])
+
+    await callback.message.edit_text(
+        text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode='HTML'
+    )
+    await callback.answer()
+
+
 async def activate_trial(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
     from app.services.trial_activation_service import get_trial_activation_charge_amount
 
@@ -1196,7 +1483,8 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                                icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 web_app=types.WebAppInfo(url=subscription_link),
                             )
                         ],
@@ -1223,7 +1511,8 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                                icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 web_app=types.WebAppInfo(url=settings.MINIAPP_CUSTOM_URL),
                             )
                         ],
@@ -1239,7 +1528,8 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                 rows = [
                     [
                         InlineKeyboardButton(
-                            text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                            icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                             url=subscription_link,
                         )
                     ]
@@ -1260,7 +1550,8 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                 rows = [
                     [
                         InlineKeyboardButton(
-                            text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                            icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                             callback_data='open_subscription_link',
                         )
                     ]
@@ -1282,7 +1573,8 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                                icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 callback_data='subscription_connect',
                             )
                         ],
@@ -1688,11 +1980,13 @@ async def handle_extend_subscription(
             '🎯 <b>Пробный период заканчивается</b>\n\nЧтобы продолжить пользоваться VPN, выберите подходящий тариф.',
             reply_markup=types.InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [types.InlineKeyboardButton(
-                        text=texts.MENU_BUY_SUBSCRIPTION,
-                        icon_custom_emoji_id=SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
-                        callback_data='menu_buy',
-                    )],
+                    [
+                        types.InlineKeyboardButton(
+                            text=texts.MENU_BUY_SUBSCRIPTION,
+                            icon_custom_emoji_id=SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
+                            callback_data='menu_buy',
+                        )
+                    ],
                     [
                         types.InlineKeyboardButton(
                             text=texts.t('WEBHOOK_CLOSE_BUTTON', '✖️ Закрыть'),
@@ -1718,11 +2012,13 @@ async def handle_extend_subscription(
             '🎯 <b>Пробный период заканчивается</b>\n\nЧтобы продолжить пользоваться VPN, выберите подходящий тариф.',
             reply_markup=types.InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [types.InlineKeyboardButton(
-                        text=texts.MENU_BUY_SUBSCRIPTION,
-                        icon_custom_emoji_id=SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
-                        callback_data='menu_buy',
-                    )],
+                    [
+                        types.InlineKeyboardButton(
+                            text=texts.MENU_BUY_SUBSCRIPTION,
+                            icon_custom_emoji_id=SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID,
+                            callback_data='menu_buy',
+                        )
+                    ],
                     [
                         types.InlineKeyboardButton(
                             text=texts.t('WEBHOOK_CLOSE_BUTTON', '✖️ Закрыть'),
@@ -2785,7 +3081,8 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                                icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 web_app=types.WebAppInfo(url=subscription_link),
                             )
                         ],
@@ -2812,7 +3109,8 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                                icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                                 web_app=types.WebAppInfo(url=settings.MINIAPP_CUSTOM_URL),
                             )
                         ],
@@ -2826,7 +3124,13 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
                 )
             elif connect_mode == 'link':
                 rows = [
-                    [InlineKeyboardButton(text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID, url=subscription_link)]
+                    [
+                        InlineKeyboardButton(
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                            icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                            url=subscription_link,
+                        )
+                    ]
                 ]
                 happ_row = get_happ_download_button_row(texts)
                 if happ_row:
@@ -2843,7 +3147,8 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
                 rows = [
                     [
                         InlineKeyboardButton(
-                            text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                            text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                            icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                             callback_data='open_subscription_link',
                         )
                     ]
@@ -2864,7 +3169,9 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID, callback_data='subscription_connect'
+                                text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                                icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                                callback_data='subscription_connect',
                             )
                         ],
                         [
@@ -3650,7 +3957,8 @@ def _build_trial_success_keyboard(texts, subscription_link: str, connect_mode: s
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                        text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=subscription_link),
                     )
                 ],
@@ -3670,7 +3978,8 @@ def _build_trial_success_keyboard(texts, subscription_link: str, connect_mode: s
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                        text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                        icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                         web_app=types.WebAppInfo(url=settings.MINIAPP_CUSTOM_URL),
                     )
                 ],
@@ -3686,7 +3995,8 @@ def _build_trial_success_keyboard(texts, subscription_link: str, connect_mode: s
         rows = [
             [
                 InlineKeyboardButton(
-                    text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                    text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                    icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                     url=subscription_link,
                 )
             ]
@@ -3707,7 +4017,8 @@ def _build_trial_success_keyboard(texts, subscription_link: str, connect_mode: s
         rows = [
             [
                 InlineKeyboardButton(
-                    text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                    text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                    icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                     callback_data='open_subscription_link',
                 )
             ]
@@ -3728,7 +4039,8 @@ def _build_trial_success_keyboard(texts, subscription_link: str, connect_mode: s
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=texts.t('CONNECT_BUTTON', 'Подключиться'), icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                    text=texts.t('CONNECT_BUTTON', 'Подключиться'),
+                    icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
                     callback_data='subscription_connect',
                 )
             ],
@@ -4220,9 +4532,7 @@ async def handle_trial_payment_method(callback: types.CallbackQuery, db_user: Us
         if 'query is too old' in error_message or 'query id is invalid' in error_message:
             # Платёж/заказ уже успешно создан выше — просто не успели закрыть спиннер
             # кнопки до истечения времени жизни callback query. Не ошибка обработки.
-            logger.warning(
-                'Устаревший callback при выборе способа оплаты триала', payment_method=payment_method
-            )
+            logger.warning('Устаревший callback при выборе способа оплаты триала', payment_method=payment_method)
             return
         logger.error('Error processing trial payment method', payment_method=payment_method, error=error)
         try:
@@ -4281,7 +4591,20 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(confirm_subscription_revoke, F.data == 'subscription_revoke_confirm')
     dp.callback_query.register(start_multi_revoke, F.data.startswith('sr:'))
 
-    dp.callback_query.register(show_trial_offer, F.data == 'menu_trial')
+    # '🎁 Пробная подписка' в главном меню, пост-регистрационная кнопка и
+    # диплинк /start trial (callback menu_trial) ведут на выбор тарифа под
+    # оплату картой/СБП (сегодня оба через Lava, см. services/payment/lava.py)
+    # — все три источника показывают один и тот же список тарифов
+    # (resolve_trial_tariffs). Старая ветка show_trial_offer (мёртвый код,
+    # ни на что не зарегистрирован) / activate_trial (один фиксированный
+    # триальный тариф + разовые способы оплаты) с этих экранов больше не
+    # вызывается, но код и регистрация trial_activate сохранены — на них
+    # ссылается кнопка 'trial' в конструкторе меню
+    # (services/menu_layout/constants.py), если админ добавит её вручную.
+    dp.callback_query.register(show_trial_tariffs, F.data == 'menu_trial')
+    dp.callback_query.register(show_trial_confirm, F.data.startswith('trial_pick:'))
+    dp.callback_query.register(start_trial_card, F.data.startswith('trial_card_pay:'))
+    dp.callback_query.register(start_trial_sbp, F.data.startswith('trial_sbp_pay:'))
 
     dp.callback_query.register(activate_trial, F.data == 'trial_activate')
 

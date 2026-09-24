@@ -371,15 +371,9 @@ def get_tariff_confirm_keyboard(
                 )
             ]
         )
-    if settings.is_lava_recurrent_enabled():
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=texts.t('LAVA_PURCHASE_BUTTON', '⚡ Оформить с автооплатой Lava'),
-                    callback_data=f'tariff_lava:{tariff_id}',
-                )
-            ]
-        )
+    # Lava-автопродление скрыто из списка способов оплаты (см. _sbp_purchase_rows) —
+    # is_lava_recurrent_enabled() при этом не выключен: он всё ещё нужен триалу
+    # (start_lava_trial) и управлению уже оформленными Lava-подписками в кабинете.
     buttons.append([InlineKeyboardButton(text=texts.BACK, callback_data=f'tariff_select:{tariff_id}')])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -492,15 +486,7 @@ def _sbp_purchase_rows(tariff_id: int, texts) -> list[list[InlineKeyboardButton]
                 )
             ]
         )
-    if settings.is_lava_recurrent_enabled():
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=texts.t('LAVA_PURCHASE_BUTTON', '⚡ Оформить с автооплатой Lava'),
-                    callback_data=f'tariff_lava:{tariff_id}',
-                )
-            ]
-        )
+    # Lava-автопродление скрыто из списка способов оплаты (см. get_tariff_confirm_keyboard).
     return rows
 
 

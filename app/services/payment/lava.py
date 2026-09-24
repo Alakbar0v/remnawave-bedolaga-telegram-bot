@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database.models import PaymentMethod, Subscription, TransactionType
+from app.database.models import PaymentMethod, Subscription, SubscriptionStatus, TransactionType
 from app.services.lava_service import lava_service
 from app.utils.payment_logger import payment_logger as logger
 from app.utils.user_utils import format_referrer_info
@@ -63,6 +63,7 @@ class LavaPaymentMixin:
         language: str = 'ru',
         payment_method_type: str | None = None,
         return_url: str | None = None,
+        extra_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         """Создаёт инвойс Lava."""
         if not settings.is_lava_enabled():
@@ -110,6 +111,11 @@ class LavaPaymentMixin:
             'payment_method_type': method_key,
             'email': email,
         }
+        if extra_metadata:
+            # Позволяет вызывающему переопределить 'type' (например 'trial_sbp_purchase')
+            # и добавить свои поля (subscription_id и т.п.) — _finalize_lava_payment
+            # ветвится по metadata['type'] ДО зачисления на баланс.
+            metadata.update(extra_metadata)
 
         try:
             hook_url = self._build_lava_hook_url()
@@ -415,6 +421,9 @@ class LavaPaymentMixin:
         if guest_result is not None:
             return True
 
+        if metadata.get('type') == 'trial_sbp_purchase':
+            return await self._finalize_lava_trial_sbp_purchase(db, payment, metadata)
+
         if not payment.is_paid:
             payment.status = 'success'
             payment.is_paid = True
@@ -584,6 +593,127 @@ class LavaPaymentMixin:
 
         return True
 
+    async def _finalize_lava_trial_sbp_purchase(
+        self,
+        db: AsyncSession,
+        payment: Any,
+        metadata: dict[str, Any],
+    ) -> bool:
+        """Активирует триал, оплаченный разовым СБП-инвойсом Lava.
+
+        В отличие от карточного триала (freeDays, ``_activate_lava_trial``) эта
+        оплата разовая и полная — доступ выдаётся сразу на весь
+        ``TRIAL_DURATION_DAYS``, как у Stars-триала (``_handle_trial_payment``
+        в ``stars_payments.py``) — переиспользует ту же функцию активации
+        ``activate_pending_trial_subscription``, чтобы не дублировать логику.
+        """
+        payment_module = import_module('app.services.payment_service')
+        subscription_id = metadata.get('subscription_id')
+
+        if not subscription_id:
+            logger.error('Lava СБП-триал: subscription_id отсутствует в metadata', order_id=payment.order_id)
+            return False
+
+        user = await payment_module.get_user_by_id(db, payment.user_id)
+        if not user:
+            logger.error('Пользователь не найден для Lava СБП-триала', user_id=payment.user_id)
+            return False
+
+        if not payment.is_paid:
+            payment.status = 'success'
+            payment.is_paid = True
+            payment.paid_at = datetime.now(UTC)
+            payment.updated_at = datetime.now(UTC)
+
+        from app.database.crud.subscription import activate_pending_trial_subscription
+
+        subscription = await activate_pending_trial_subscription(
+            db,
+            subscription_id=int(subscription_id),
+            user_id=user.id,
+        )
+        if not subscription:
+            logger.error(
+                'Lava СБП-триал: не удалось активировать pending подписку',
+                subscription_id=subscription_id,
+                user_id=user.id,
+                order_id=payment.order_id,
+            )
+            return False
+
+        transaction_external_id = payment.order_id
+        transaction = await payment_module.get_transaction_by_external_id(
+            db, transaction_external_id, PaymentMethod.LAVA
+        )
+        if not transaction:
+            transaction = await payment_module.create_transaction(
+                db,
+                user_id=user.id,
+                type=TransactionType.SUBSCRIPTION_PAYMENT,
+                amount_kopeks=payment.amount_kopeks,
+                description='Оплата пробной подписки через СБП (Lava)',
+                payment_method=PaymentMethod.LAVA,
+                external_id=transaction_external_id,
+                is_completed=True,
+                commit=False,
+            )
+
+        lava_crud = import_module('app.database.crud.lava')
+        await lava_crud.link_lava_payment_to_transaction(db, payment=payment, transaction_id=transaction.id)
+        await db.commit()
+        await db.refresh(user)
+
+        subscription_service_module = import_module('app.services.subscription_service')
+        subscription_service = subscription_service_module.SubscriptionService()
+        try:
+            await subscription_service.create_remnawave_user(db, subscription)
+        except Exception as rw_error:
+            logger.error('Ошибка создания пользователя RemnaWave для Lava СБП-триала', rw_error=rw_error)
+            from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+            remnawave_retry_queue.enqueue(
+                subscription_id=subscription.id,
+                user_id=subscription.user_id,
+                action='create',
+            )
+
+        if getattr(self, 'bot', None):
+            try:
+                from app.services.admin_notification_service import AdminNotificationService
+
+                notification_service = AdminNotificationService(self.bot)
+                await notification_service.send_trial_activation_notification(
+                    user=user,
+                    subscription=subscription,
+                    paid_amount=payment.amount_kopeks,
+                    payment_method='СБП (Lava)',
+                )
+            except Exception as error:
+                logger.warning('Ошибка отправки админ-уведомления о Lava СБП-триале', error=error)
+
+            if user.telegram_id:
+                try:
+                    await self.bot.send_message(
+                        user.telegram_id,
+                        (
+                            '🎉 <b>Пробная подписка активирована!</b>\n\n'
+                            f'💰 Оплачено: {settings.format_price(payment.amount_kopeks)}\n'
+                            f'📅 Период: {settings.TRIAL_DURATION_DAYS} дней\n\n'
+                            'Используйте меню для подключения к VPN.'
+                        ),
+                        parse_mode='HTML',
+                    )
+                except Exception as error:
+                    logger.error('Ошибка отправки уведомления пользователю о Lava СБП-триале', error=error)
+
+        logger.info(
+            '✅ Платный триал активирован через СБП (Lava)',
+            user_id=user.id,
+            subscription_id=subscription.id,
+            order_id=payment.order_id,
+        )
+        return True
+
     async def check_lava_payment_status(
         self,
         db: AsyncSession,
@@ -687,12 +817,110 @@ class LavaPaymentMixin:
                 'confirmed': texts.t('LAVA_RECURRING_NOTIFY_CONFIRMED', '✅ Подписка продлена автосписанием Lava.'),
                 'failed': texts.t('LAVA_RECURRING_NOTIFY_FAILED', '⚠️ Не удалось списать оплату по автопродлению Lava.'),
                 'cancelled': texts.t('LAVA_RECURRING_NOTIFY_CANCELLED', 'ℹ️ Автопродление Lava отменено.'),
+                'trial_started': texts.t(
+                    'TRIAL_CARD_NOTIFY_STARTED',
+                    '🎁 Карта привязана, пробный период активирован.',
+                ),
             }
             text = messages.get(kind)
             if text:
                 await bot.send_message(chat_id=user.telegram_id, text=text)
         except Exception as error:  # pragma: no cover - best-effort notify
             logger.warning('Не удалось отправить уведомление об автопродлении Lava', error=str(error), kind=kind)
+
+    async def _activate_lava_trial(self, db: AsyncSession, record: Any) -> bool:
+        """Выдаёт триальный доступ по вебхуку ``status=activated`` привязки карты.
+
+        Вызывается только для триальных привязок (``record.free_days > 0`` —
+        продукт с freeDays в кабинете Lava). Идемпотентно по
+        ``trial_activated_at``: Lava ретраит недоставленный вебхук до 5 раз,
+        повторная доставка не должна продлевать доступ дважды. Транзакция НЕ
+        создаётся — сумма вебхука верификационная (обычно 1₽), а не оплата
+        подписки; настоящее списание придёт отдельным вебхуком ``success``
+        после окончания freeDays и обработается веткой ``CHARGE_SUCCESS``.
+
+        ``charges_success > 0`` тоже блокирует активацию: если настоящее
+        списание (после freeDays) уже прошло раньше, чем сюда добралась
+        сильно запоздавшая повторная доставка ``activated`` (retry вне
+        обычного окна Lava в 5 попыток / 150с), выдавать ещё free_days поверх
+        уже оплаченной и продлённой подписки нельзя.
+        """
+        if record.free_days <= 0 or record.trial_activated_at is not None or record.charges_success > 0:
+            return False
+
+        subscription = await db.get(Subscription, record.subscription_id)
+        if subscription is None:
+            logger.error(
+                'Lava: подписка не найдена при активации триала',
+                subscription_id=record.subscription_id,
+                order_id=record.order_id,
+            )
+            return False
+
+        from app.database.crud.subscription import _lock_subscription_row, reconcile_tariff_traffic_limit
+        from app.services.grace_access_echo import undo_grace_overlay_echo
+
+        await _lock_subscription_row(db, subscription)
+        # Оверлей грейса, осевший в подписке, — не её срок (как в ветке CHARGE_SUCCESS).
+        await undo_grace_overlay_echo(db, subscription)
+
+        subscription.extend_subscription(record.free_days)
+        # Условия тарифа на новый период: база тарифа + активные докупки.
+        await reconcile_tariff_traffic_limit(db, subscription)
+        # extend_subscription поднимает в ACTIVE только EXPIRED/LIMITED, а
+        # черновик триала создаётся в PENDING — статус выставляем явно.
+        subscription.status = SubscriptionStatus.ACTIVE.value
+
+        activated_at = datetime.now(UTC)
+        record.trial_activated_at = activated_at
+        record.status = 'ACTIVE'
+        record.next_charge_at = activated_at + timedelta(days=record.free_days)
+
+        await db.commit()
+
+        await self._notify_lava_recurring(db, record, 'trial_started')
+
+        # Админ-уведомление + запись в таймлайн активности — как у остальных
+        # путей активации триала (activate_trial бота, cabinet POST /trial).
+        # Единственный источник правды теперь именно здесь: main-menu кнопка,
+        # /start trial и пост-регистрационная кнопка лишь показывают оффер и
+        # привязывают карту, а активацию делает этот вебхук-хендлер.
+        bot = getattr(self, 'bot', None)
+        if bot is not None:
+            try:
+                from app.database.models import User
+                from app.services.admin_notification_service import AdminNotificationService
+
+                trial_user = await db.get(User, record.user_id)
+                if trial_user is not None:
+                    await AdminNotificationService(bot).send_trial_activation_notification(db, trial_user, subscription)
+            except Exception as notify_error:  # best-effort: активация уже в БД
+                logger.warning(
+                    'Не удалось отправить админ-уведомление об активации триала Lava',
+                    error=str(notify_error),
+                    subscription_id=subscription.id,
+                )
+
+        # Синк панели — последним шагом: при сбое update_remnawave_user делает
+        # внутренний rollback, экспайрящий атрибуты сессии (зеркало ветки
+        # успешного продления ниже).
+        subscription_id_for_log = subscription.id
+        try:
+            from app.services.subscription_service import SubscriptionService
+
+            await SubscriptionService().update_remnawave_user(
+                db,
+                subscription,
+                reset_traffic=settings.RESET_TRAFFIC_ON_PAYMENT,
+                reset_reason='Активация триала Lava',
+            )
+        except Exception as sync_error:  # best-effort: активация уже в БД
+            logger.warning(
+                'Синк панели после активации триала Lava не удался',
+                error=str(sync_error),
+                subscription_id=subscription_id_for_log,
+            )
+        return True
 
     async def create_lava_recurrent_subscription(
         self,
@@ -701,13 +929,16 @@ class LavaPaymentMixin:
         user_id: int,
         subscription: Any,
         tariff: Any,
+        use_trial_product: bool = False,
     ) -> dict[str, Any]:
         """Оформляет рекуррентную подписку Lava для подписки бота.
 
         В отличие от Platega сумма и периодичность НЕ выводятся из тарифа: они
         заданы продуктом в кабинете Lava, на который ссылается
-        ``tariff.lava_product_id``. Первое списание идёт по ссылке
-        ``data.url`` — до его оплаты подписка остаётся ``PENDING``.
+        ``tariff.lava_product_id`` (или ``tariff.trial_card_product_id`` при
+        ``use_trial_product=True`` — продукт с freeDays для платного триала).
+        Первое списание идёт по ссылке ``data.url`` — до его оплаты подписка
+        остаётся ``PENDING``.
 
         Как и у Platega, включение выключает ``subscription.autopay_enabled``:
         рекуррент провайдера и баланс-автосписание — взаимоисключающие движки
@@ -729,8 +960,11 @@ class LavaPaymentMixin:
                 'status': existing.status,
             }
 
-        product_id = (getattr(tariff, 'lava_product_id', None) or '').strip()
+        product_field = 'trial_card_product_id' if use_trial_product else 'lava_product_id'
+        product_id = (getattr(tariff, product_field, None) or '').strip()
         if not product_id:
+            if use_trial_product:
+                raise ValueError('Для тарифа не задан триальный продукт Lava — платный триал недоступен')
             raise ValueError('Для тарифа не задан продукт Lava — автопродление недоступно')
 
         payment_module = import_module('app.services.payment_service')
@@ -745,6 +979,13 @@ class LavaPaymentMixin:
         if product is None:
             raise ValueError('Продукт Lava недоступен — попробуйте позже')
         charge_days = resolve_product_charge_days(product)
+
+        # freeDays берём из продукта, только если явно просили триальный —
+        # иначе случайно настроенный freeDays на обычном продукте включил бы
+        # выдачу доступа по вебхуку activated там, где это не задумано.
+        free_days = int(product.get('freeDays') or 0) if use_trial_product else 0
+        if use_trial_product and free_days <= 0:
+            raise ValueError('Триальный продукт Lava не имеет freeDays — настройте пробный период в кабинете Lava')
 
         # ВСЯ валидация — ДО обращения к Lava: subscribe создаёт живую привязку
         # на их стороне, и любой raise после него оставил бы подписку, которая
@@ -822,6 +1063,7 @@ class LavaPaymentMixin:
                 amount_kopeks=amount_kopeks,
                 redirect_url=redirect_url,
                 lava_subscription_id=lava_id,
+                free_days=free_days,
             )
         except IntegrityError:
             # Конкурентный enable выиграл гонку и занял partial unique
@@ -1074,6 +1316,12 @@ class LavaPaymentMixin:
             # Условия тарифа на новый период: база тарифа + активные докупки.
             await reconcile_tariff_traffic_limit(db, subscription)
 
+            # Первое полное списание по триальной привязке (freeDays истекли)
+            # превращает триал в обычную оплаченную подписку — иначе она
+            # навсегда останется помеченной триальной для UI и гейтов.
+            if record.free_days > 0 and getattr(subscription, 'is_trial', False):
+                subscription.is_trial = False
+
             # Списание по локально ОТМЕНЁННОЙ записи = удалённая отмена не
             # прошла. Деньги взяты — продлеваем честно, но запись НЕ воскрешаем
             # в ACTIVE и повторяем удалённую отмену.
@@ -1096,7 +1344,7 @@ class LavaPaymentMixin:
                 user_id=record.user_id,
                 type=TransactionType.SUBSCRIPTION_PAYMENT,
                 amount_kopeks=record.amount_kopeks,
-                description='Автопродление Lava',
+                description='Автопродление картой',
                 payment_method=PaymentMethod.LAVA,
                 external_id=charge_id,
                 commit=False,
@@ -1114,7 +1362,7 @@ class LavaPaymentMixin:
                 type=TransactionType.SUBSCRIPTION_PAYMENT,
                 payment_method=PaymentMethod.LAVA,
                 external_id=charge_id,
-                description='Автопродление Lava',
+                description='Автопродление картой',
             )
 
             await self._notify_lava_recurring(db, record, 'confirmed')
@@ -1173,6 +1421,21 @@ class LavaPaymentMixin:
             await self._notify_lava_recurring(db, record, 'failed')
             return True
 
+        if lava_status in lr.CHARGE_ACTIVATED and record.free_days > 0:
+            # Подтверждение привязки карты к триальному продукту (freeDays) —
+            # выдаём доступ на freeDays до реального первого списания. Для
+            # обычных (нетриальных) привязок free_days == 0, и такое же
+            # событие activated намеренно падает в no-op ниже: оно там уже
+            # безопасно игнорировалось, менять поведение не нужно.
+            activated = await self._activate_lava_trial(db, record)
+            if not activated:
+                logger.info(
+                    'Lava subscription callback: activated уже обработан или не триал',
+                    order_id=order_id,
+                    lava_subscription_id=record.lava_subscription_id,
+                )
+            return True
+
         logger.info(
             'Lava subscription callback: промежуточный статус, изменений нет',
             order_id=order_id,
@@ -1193,6 +1456,7 @@ async def enable_lava_recurring(
     user_id: int,
     subscription: Any,
     tariff: Any,
+    use_trial_product: bool = False,
 ) -> dict[str, Any]:
     """Включить автопродление Lava. Возвращает {local_id, lava_subscription_id, redirect_url, status}.
 
@@ -1202,7 +1466,7 @@ async def enable_lava_recurring(
     if not settings.is_lava_recurrent_enabled():
         raise RuntimeError('Lava recurrent is disabled')
     return await _LavaRecurrentAgent().create_lava_recurrent_subscription(
-        db, user_id=user_id, subscription=subscription, tariff=tariff
+        db, user_id=user_id, subscription=subscription, tariff=tariff, use_trial_product=use_trial_product
     )
 
 
@@ -1256,6 +1520,117 @@ async def purchase_tariff_with_lava_recurring(
         subscription = await create_sbp_pending_subscription(db, user.id, tariff)
 
     result = await enable_lava_recurring(db, user_id=user.id, subscription=subscription, tariff=tariff)
+    return {**result, 'subscription_id': subscription.id}
+
+
+async def start_lava_trial(
+    db: AsyncSession,
+    *,
+    user: Any,
+    tariff: Any,
+) -> dict[str, Any]:
+    """Оформление платного триала через привязку карты к Lava-продукту с freeDays.
+
+    В отличие от ``purchase_tariff_with_lava_recurring`` (обычная покупка —
+    полная сумма списывается первым счётом): здесь создаётся PENDING-черновик
+    триала (``create_trial_draft_subscription``), а не EXPIRED-
+    заготовка. Доступ выдаёт не первый чардж, а отдельный вебхук
+    ``status=activated`` — см. ``LavaPaymentMixin._activate_lava_trial``.
+
+    Требует непотраченный триал (``User.is_trial_already_used`` — требует
+    загруженного ``user.subscriptions``, как и в ``activate_trial``) и
+    заполненный ``tariff.trial_card_product_id``.
+    """
+    if not settings.is_lava_recurrent_enabled():
+        raise RuntimeError('Lava recurrent is disabled')
+
+    if user.is_trial_already_used():
+        raise ValueError('Пробный период уже использован')
+
+    # tariff приходит из callback_data пользователя — доверять ему нельзя.
+    # Разрешён только тариф, реально входящий в набор триальных
+    # (is_trial_available, несколько тарифов могут быть помечены
+    # одновременно — resolve_trial_tariffs; либо TRIAL_TARIFF_ID как фолбэк),
+    # иначе любой активный тариф с заполненным trial_card_product_id
+    # (например, забытым админом от прошлой настройки) можно было бы
+    # получить по цене триала.
+    from app.database.crud.tariff import resolve_trial_tariffs
+
+    trial_tariffs = await resolve_trial_tariffs(db)
+    trial_tariff_ids = {t.id for t in trial_tariffs}
+    if getattr(tariff, 'id', None) not in trial_tariff_ids:
+        raise ValueError('Тариф недоступен для пробного периода')
+
+    trial_product_id = (getattr(tariff, 'trial_card_product_id', None) or '').strip()
+    if not trial_product_id:
+        raise ValueError('Для тарифа не задан триальный продукт Lava')
+
+    from app.database.crud.subscription import create_trial_draft_subscription
+
+    subscription = await create_trial_draft_subscription(db, user.id, tariff)
+
+    result = await enable_lava_recurring(
+        db, user_id=user.id, subscription=subscription, tariff=tariff, use_trial_product=True
+    )
+    return {**result, 'subscription_id': subscription.id}
+
+
+async def start_lava_trial_sbp(
+    db: AsyncSession,
+    *,
+    user: Any,
+    tariff: Any,
+) -> dict[str, Any]:
+    """Разовая оплата триала через СБП (Lava), без привязки карты/рекуррента.
+
+    В отличие от ``start_lava_trial`` (freeDays-продукт, рекуррент, требует
+    ``trial_card_product_id``) — у СБП-инвойса Lava нет отложенного первого
+    списания, поэтому здесь разовая оплата фиксированной суммой
+    (``get_trial_activation_charge_amount``) сразу выдаёт ВЕСЬ триальный
+    период — как Stars-триал (``_handle_trial_payment`` в
+    ``stars_payments.py``). Активация — по вебхуку Lava, см.
+    ``LavaPaymentMixin._finalize_lava_trial_sbp_purchase``.
+    """
+    if not settings.is_lava_sbp_enabled():
+        raise RuntimeError('Lava SBP is disabled')
+
+    if user.is_trial_already_used():
+        raise ValueError('Пробный период уже использован')
+
+    from app.database.crud.tariff import resolve_trial_tariffs
+
+    trial_tariffs = await resolve_trial_tariffs(db)
+    trial_tariff_ids = {t.id for t in trial_tariffs}
+    if getattr(tariff, 'id', None) not in trial_tariff_ids:
+        raise ValueError('Тариф недоступен для пробного периода')
+
+    from app.services.trial_activation_service import get_trial_activation_charge_amount
+
+    price_kopeks = get_trial_activation_charge_amount()
+    if price_kopeks <= 0:
+        raise ValueError('Оплата пробного периода через СБП не настроена')
+
+    from app.database.crud.subscription import create_trial_draft_subscription
+
+    subscription = await create_trial_draft_subscription(db, user.id, tariff)
+
+    payment_module = import_module('app.services.payment_service')
+    payment_service = payment_module.PaymentService()
+    result = await payment_service.create_lava_payment(
+        db=db,
+        user_id=user.id,
+        amount_kopeks=price_kopeks,
+        description='Оплата пробной подписки через СБП',
+        email=getattr(user, 'email', None),
+        language=getattr(user, 'language', 'ru') or 'ru',
+        payment_method_type='sbp',
+        extra_metadata={'type': 'trial_sbp_purchase', 'subscription_id': subscription.id},
+    )
+    if result is None:
+        # Черновик подписки остаётся PENDING — это не считается использованием
+        # триала (User.is_trial_already_used), новая попытка не заблокирована.
+        raise RuntimeError('Не удалось создать СБП-инвойс Lava')
+
     return {**result, 'subscription_id': subscription.id}
 
 

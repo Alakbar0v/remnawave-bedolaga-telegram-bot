@@ -74,7 +74,10 @@ def test_single_subscription_block_reuses_menu_status_builder():
 
 def test_trial_deeplink_wired_in_start():
     """Диплинк /start trial: ветка сташит pending_trial, drain — рядом с купонным
-    (до state.clear() и показа меню), платный триал деплинком не активируется."""
+    (до state.clear() и показа меню). Вместо мгновенной бесплатной активации
+    показывает оффер триала со списком тарифов под оплату картой/СБП
+    (build_trial_choose_screen) — тот же поток и тот же список, что и
+    в главном меню (menu_trial -> show_trial_tariffs)."""
     source = _START_PATH.read_text(encoding='utf-8')
 
     assert "if start_parameter == 'trial':" in source
@@ -85,11 +88,10 @@ def test_trial_deeplink_wired_in_start():
     assert coupon_drain < trial_drain
 
     helper = source.index('async def _activate_pending_trial(')
-    assert 'is_trial_paid_activation_enabled' in source[helper : helper + 3000]
-    assert 'is_trial_already_used' in source[helper : helper + 3000]
-
-    # Подтверждение активации — эфемерное: удаляется отложенной задачей
-    confirmation = source.index('MAIN_MENU_RICH_TRIAL_ACTIVATED')
-    tail = source[confirmation : confirmation + 800]
-    assert '_delete_message_later' in tail
-    assert 'delay=30' in tail
+    tail = source[helper : helper + 3000]
+    assert 'is_trial_already_used' in tail
+    # Триал больше не создаётся напрямую этим путём — только кнопка привязки карты
+    assert 'create_trial_subscription' not in tail
+    # Список тарифов и экран — общие с show_trial_tariffs, не свой f-string
+    assert 'resolve_trial_tariffs' in tail
+    assert 'build_trial_choose_screen' in tail

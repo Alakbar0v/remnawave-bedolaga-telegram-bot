@@ -588,9 +588,13 @@ async def toggle_trial_tariff(
     db_user: User,
     db: AsyncSession,
 ):
-    """Переключает тариф как триальный."""
-    from app.database.crud.tariff import clear_trial_tariff, set_trial_tariff
+    """Переключает тариф как триальный.
 
+    Триальными независимо друг от друга может быть несколько тарифов —
+    переключение одного не трогает флаг у остальных (см.
+    ``resolve_trial_tariffs``, которая собирает их все для новой ветки
+    платного триала через карту/СБП).
+    """
     tariff_id = int(callback.data.split(':')[1])
     tariff = await get_tariff_by_id(db, tariff_id)
 
@@ -599,12 +603,10 @@ async def toggle_trial_tariff(
         return
 
     if tariff.is_trial_available:
-        # Снимаем флаг триала
-        await clear_trial_tariff(db)
+        await update_tariff(db, tariff, is_trial_available=False)
         await callback.answer('Триал снят с тарифа', show_alert=True)
     else:
-        # Устанавливаем этот тариф как триальный (снимает флаг с других)
-        await set_trial_tariff(db, tariff_id)
+        await update_tariff(db, tariff, is_trial_available=True)
         await callback.answer(f'Тариф «{tariff.name}» установлен как триальный', show_alert=True)
 
     # Перезагружаем тариф

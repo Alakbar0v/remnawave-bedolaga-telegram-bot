@@ -3,6 +3,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.database.models import PromoGroup, Subscription, SubscriptionStatus, Tariff
 from app.utils.panel_tag import normalize_panel_tag
 
@@ -98,14 +99,19 @@ async def count_tariffs(db: AsyncSession, *, include_inactive: bool = False) -> 
 
 
 async def get_trial_tariff(db: AsyncSession) -> Tariff | None:
-    """Получает тариф, доступный для триала (is_trial_available=True).
+    """Получает один тариф, доступный для триала (is_trial_available=True).
 
     Триальный тариф может быть неактивным — это сделано специально,
     чтобы он не отображался в списке покупки, но использовался для триала
     со своими лимитами (трафик, устройства, серверы).
 
     Сортируется по updated_at DESC, чтобы вернуть последний установленный
-    триальный тариф (на случай если их несколько).
+    триальный тариф (на случай если их несколько). Используется старыми
+    путями (кабинет, miniapp, промокоды, админ-выдача), где выбора тарифа
+    нет и достаточно одного разумного значения. Новая ветка
+    (show_trial_tariffs / start_lava_trial) использует
+    ``resolve_trial_tariffs`` — она возвращает ВСЕ помеченные тарифы, а не
+    только последний.
     """
     query = (
         select(Tariff)
@@ -118,25 +124,41 @@ async def get_trial_tariff(db: AsyncSession) -> Tariff | None:
     return result.scalars().first()
 
 
-async def set_trial_tariff(db: AsyncSession, tariff_id: int) -> Tariff | None:
-    """Устанавливает тариф как триальный (снимает флаг с других тарифов)."""
-    # Снимаем флаг с всех тарифов
-    await db.execute(Tariff.__table__.update().values(is_trial_available=False))
+async def resolve_trial_tariffs(db: AsyncSession) -> list[Tariff]:
+    """Получает все тарифы, доступные для триала (is_trial_available=True).
 
-    # Устанавливаем флаг на выбранный тариф
-    tariff = await get_tariff_by_id(db, tariff_id)
-    if tariff:
-        tariff.is_trial_available = True
-        await db.commit()
-        await db.refresh(tariff)
+    В отличие от ``get_trial_tariff`` (синглтон, оставлен для старых путей —
+    кабинета, miniapp, промокодов, админ-выдачи) — несколько тарифов
+    одновременно могут быть помечены триальными, и пользователь выбирает
+    между ними на экране ``show_trial_tariffs``. Это единственный
+    источник правды и для показа списка, и для проверки в
+    ``start_lava_trial`` — набор «что предлагаем» и «что разрешаем оплатить»
+    не должен расходиться.
 
-    return tariff
+    Триальный тариф может быть неактивным — это сделано специально (см.
+    докстринг ``get_trial_tariff``), поэтому ``is_active`` не фильтруется.
 
+    Если флагом не помечен ни один тариф — фолбэк на ``TRIAL_TARIFF_ID`` из
+    настроек (совместимость со старой одиночной настройкой).
+    """
+    query = (
+        select(Tariff)
+        .where(Tariff.is_trial_available.is_(True))
+        .options(selectinload(Tariff.allowed_promo_groups))
+        .order_by(Tariff.display_order, Tariff.id)
+    )
+    result = await db.execute(query)
+    tariffs = list(result.scalars().all())
+    if tariffs:
+        return tariffs
 
-async def clear_trial_tariff(db: AsyncSession) -> None:
-    """Снимает флаг триала со всех тарифов."""
-    await db.execute(Tariff.__table__.update().values(is_trial_available=False))
-    await db.commit()
+    trial_tariff_id = settings.get_trial_tariff_id()
+    if trial_tariff_id > 0:
+        fallback_tariff = await get_tariff_by_id(db, trial_tariff_id)
+        if fallback_tariff:
+            return [fallback_tariff]
+
+    return []
 
 
 async def get_all_active_tariffs(db: AsyncSession) -> list[Tariff]:
@@ -205,6 +227,8 @@ async def create_tariff(
     daily_price_kopeks: int = 0,
     # UUID продукта Lava для рекуррентных подписок
     lava_product_id: str | None = None,
+    # UUID продукта провайдера карточного триала (сегодня Lava, с freeDays)
+    trial_card_product_id: str | None = None,
     # Произвольное количество дней
     custom_days_enabled: bool = False,
     price_per_day_kopeks: int = 0,
@@ -252,6 +276,7 @@ async def create_tariff(
         is_daily=is_daily,
         daily_price_kopeks=max(0, daily_price_kopeks),
         lava_product_id=(lava_product_id or '').strip() or None,
+        trial_card_product_id=(trial_card_product_id or '').strip() or None,
         # Произвольное количество дней
         custom_days_enabled=custom_days_enabled,
         price_per_day_kopeks=max(0, price_per_day_kopeks),
@@ -327,6 +352,7 @@ async def update_tariff(
     is_daily: bool | None = None,
     daily_price_kopeks: int | None = None,
     lava_product_id: str | None = None,
+    trial_card_product_id: str | None = None,
     # Произвольное количество дней
     custom_days_enabled: bool | None = None,
     price_per_day_kopeks: int | None = None,
@@ -403,6 +429,8 @@ async def update_tariff(
     if lava_product_id is not None:
         # Пустая строка = отвязать тариф от продукта Lava
         tariff.lava_product_id = lava_product_id.strip() or None
+    if trial_card_product_id is not None:
+        tariff.trial_card_product_id = trial_card_product_id.strip() or None
     # Произвольное количество дней
     if custom_days_enabled is not None:
         tariff.custom_days_enabled = custom_days_enabled

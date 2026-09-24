@@ -43,12 +43,17 @@ def _lava_display(tariff: Tariff) -> str:
     return html.escape(getattr(tariff, 'lava_product_id', None) or 'не задан')
 
 
+def _trial_card_display(tariff: Tariff) -> str:
+    return html.escape(getattr(tariff, 'trial_card_product_id', None) or 'не задан')
+
+
 def format_panel_settings(tariff: Tariff) -> str:
     """Блок для карточки тарифа."""
     return (
         f'• Тег панели: {_tag_display(tariff)}\n'
         f'• Внешний сквад: {_ext_squad_display(tariff)}\n'
         f'• Продукт Lava: {_lava_display(tariff)}\n'
+        f'• Продукт триала (карта): {_trial_card_display(tariff)}\n'
         f'• В подарках: {_yes_no(getattr(tariff, "show_in_gift", True))}\n'
         f'• Докупка трафика разрешена: {_yes_no(getattr(tariff, "allow_traffic_topup", True))}'
     )
@@ -78,6 +83,11 @@ def get_panel_settings_keyboard(tariff: Tariff, language: str) -> InlineKeyboard
             [
                 InlineKeyboardButton(text='💳 Продукт Lava', callback_data=f'admin_tariff_edit_lava:{tariff.id}'),
                 InlineKeyboardButton(text='🔢 Порядок', callback_data=f'admin_tariff_edit_order:{tariff.id}'),
+            ],
+            [
+                InlineKeyboardButton(
+                    text='🎁 Продукт триала (карта)', callback_data=f'admin_tariff_edit_trial_card:{tariff.id}'
+                )
             ],
             [
                 InlineKeyboardButton(
@@ -263,6 +273,44 @@ async def process_panel_tag_input(message: types.Message, db_user: User, db: Asy
 
 @admin_required
 @error_handler
+async def start_edit_trial_card_product(
+    callback: types.CallbackQuery, db_user: User, db: AsyncSession, state: FSMContext
+):
+    tariff = await get_tariff_by_id(db, int(callback.data.split(':')[1]))
+    if not tariff:
+        await callback.answer('Тариф не найден', show_alert=True)
+        return
+    await _start_field_edit(
+        callback,
+        db_user,
+        state,
+        tariff,
+        state_value=AdminStates.editing_tariff_trial_card_product,
+        title='🎁 <b>Продукт триала (карта)</b>',
+        current_value=_trial_card_display(tariff),
+        prompt=(
+            'Введите UUID продукта с freeDays из кабинета Lava (платный триал с привязкой карты) '
+            'или <code>-</code>, чтобы отвязать.'
+        ),
+    )
+
+
+@admin_required
+@error_handler
+async def process_trial_card_product_input(message: types.Message, db_user: User, db: AsyncSession, state: FSMContext):
+    tariff = await _load_tariff_from_state(message, db, state)
+    if tariff is None:
+        return
+    raw = (message.text or '').strip()
+    # Пустая строка для CRUD значит «отвязать» — так же, как в кабинете.
+    value = '' if raw == '-' else raw
+    tariff = await update_tariff(db, tariff, trial_card_product_id=value)
+    confirmation = f'✅ Продукт триала (карта): {html.escape(value)}' if value else '✅ Продукт триала (карта) отвязан'
+    await _finish(message, db_user, state, tariff, confirmation)
+
+
+@admin_required
+@error_handler
 async def process_lava_product_input(message: types.Message, db_user: User, db: AsyncSession, state: FSMContext):
     tariff = await _load_tariff_from_state(message, db, state)
     if tariff is None:
@@ -391,9 +439,11 @@ def register_panel_settings_handlers(dp: Dispatcher) -> None:
     dp.callback_query.register(toggle_allow_traffic_topup, F.data.startswith('admin_tariff_toggle_allow_topup:'))
     dp.callback_query.register(start_edit_panel_tag, F.data.startswith('admin_tariff_edit_panel_tag:'))
     dp.callback_query.register(start_edit_lava_product, F.data.startswith('admin_tariff_edit_lava:'))
+    dp.callback_query.register(start_edit_trial_card_product, F.data.startswith('admin_tariff_edit_trial_card:'))
     dp.callback_query.register(start_edit_display_order, F.data.startswith('admin_tariff_edit_order:'))
     dp.callback_query.register(start_edit_external_squad, F.data.startswith('admin_tariff_edit_ext_squad:'))
     dp.callback_query.register(set_external_squad, F.data.startswith('admin_tariff_set_ext_squad:'))
     dp.message.register(process_panel_tag_input, AdminStates.editing_tariff_panel_tag)
     dp.message.register(process_lava_product_input, AdminStates.editing_tariff_lava_product)
+    dp.message.register(process_trial_card_product_input, AdminStates.editing_tariff_trial_card_product)
     dp.message.register(process_display_order_input, AdminStates.editing_tariff_display_order)
