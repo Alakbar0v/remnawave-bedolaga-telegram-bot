@@ -54,10 +54,11 @@ from app.services.subscription_purchase_service import (
     PurchaseValidationError,
 )
 from app.services.subscription_service import SubscriptionService
+from app.services.traffic_reset_policy import lift_panel_traffic_limit, should_reset_traffic_on_daily_charge
 from app.services.user_cart_service import user_cart_service
 from app.utils.formatters import format_days_declension
 from app.utils.pricing_utils import format_period_description
-from app.utils.timezone import format_email_datetime, format_local_datetime
+from app.utils.timezone import format_local_datetime
 
 
 logger = structlog.get_logger(__name__)
@@ -93,7 +94,7 @@ async def _notify_email_user_auto_purchase(
         )
 
         end_date = getattr(subscription, 'end_date', None)
-        end_date_str = end_date.strftime('%d.%m.%Y') if end_date else ''
+        end_date_str = format_local_datetime(end_date, '%d.%m.%Y') if end_date else ''
         await notification_delivery_service.send_notification(
             user=user,
             notification_type=(
@@ -813,7 +814,7 @@ async def _auto_extend_subscription(
         await notify_user_subscription_renewed(
             user_id=user.id,
             subscription_id=subscription.id if subscription else None,
-            new_expires_at=format_email_datetime(new_end_date),
+            new_expires_at=new_end_date,
             amount_kopeks=prepared.price_kopeks,
         )
     except Exception as ws_error:
@@ -1194,7 +1195,7 @@ async def _auto_purchase_tariff(
             await notify_user_subscription_renewed(
                 user_id=user.id,
                 subscription_id=subscription.id if subscription else None,
-                new_expires_at=format_email_datetime(subscription.end_date),
+                new_expires_at=subscription.end_date,
                 amount_kopeks=final_price,
             )
         else:
@@ -1202,7 +1203,7 @@ async def _auto_purchase_tariff(
             await notify_user_subscription_activated(
                 user_id=user.id,
                 subscription_id=subscription.id if subscription else None,
-                expires_at=format_email_datetime(subscription.end_date),
+                expires_at=subscription.end_date,
                 tariff_name=tariff.name,
             )
     except Exception as ws_error:
@@ -1550,7 +1551,7 @@ async def _auto_purchase_daily_tariff(
             await notify_user_subscription_renewed(
                 user_id=user.id,
                 subscription_id=subscription.id if subscription else None,
-                new_expires_at=format_email_datetime(subscription.end_date),
+                new_expires_at=subscription.end_date,
                 amount_kopeks=final_price,
             )
         else:
@@ -1558,7 +1559,7 @@ async def _auto_purchase_daily_tariff(
             await notify_user_subscription_activated(
                 user_id=user.id,
                 subscription_id=subscription.id if subscription else None,
-                expires_at=format_email_datetime(subscription.end_date),
+                expires_at=subscription.end_date,
                 tariff_name=tariff.name,
             )
     except Exception as ws_error:
@@ -1577,6 +1578,7 @@ async def _auto_add_devices(
     cart_data: dict,
     *,
     bot: Bot | None = None,
+    manual: bool = False,
 ) -> bool:
     """Auto-purchase devices from saved cart after balance topup."""
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -1838,10 +1840,14 @@ async def _auto_add_devices(
         texts = get_texts(getattr(user, 'language', 'ru'))
         try:
             message = texts.t(
-                'AUTO_PURCHASE_DEVICES_SUCCESS',
+                'ADDON_PURCHASE_DEVICES_SUCCESS' if manual else 'AUTO_PURCHASE_DEVICES_SUCCESS',
                 (
-                    '✅ <b>Устройства добавлены автоматически!</b>\n\n'
-                    '📱 Добавлено: {devices_to_add} устройств\n'
+                    (
+                        '✅ <b>Устройства добавлены!</b>\n\n'
+                        if manual
+                        else '✅ <b>Устройства добавлены автоматически!</b>\n\n'
+                    )
+                    + '📱 Добавлено: {devices_to_add} устройств\n'
                     '📊 Новый лимит: {new_limit} устройств\n'
                     '💰 Списано: {price}'
                 ),
@@ -1904,6 +1910,7 @@ async def _auto_add_traffic(
     cart_data: dict,
     *,
     bot: Bot | None = None,
+    manual: bool = False,
 ) -> bool:
     """Auto-purchase traffic from saved cart after balance topup."""
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -2194,10 +2201,10 @@ async def _auto_add_traffic(
         texts = get_texts(getattr(user, 'language', 'ru'))
         try:
             message = texts.t(
-                'AUTO_PURCHASE_TRAFFIC_SUCCESS',
+                'ADDON_PURCHASE_TRAFFIC_SUCCESS' if manual else 'AUTO_PURCHASE_TRAFFIC_SUCCESS',
                 (
-                    '✅ <b>Трафик добавлен автоматически!</b>\n\n'
-                    '📈 Добавлено: {traffic_gb} ГБ\n'
+                    ('✅ <b>Трафик добавлен!</b>\n\n' if manual else '✅ <b>Трафик добавлен автоматически!</b>\n\n')
+                    + '📈 Добавлено: {traffic_gb} ГБ\n'
                     '📊 Новый лимит: {new_limit} ГБ\n'
                     '💰 Списано: {price}'
                 ),
@@ -2641,7 +2648,7 @@ async def try_auto_extend_expired_after_topup(
         await notify_user_subscription_renewed(
             user_id=user.id,
             subscription_id=subscription.id if subscription else None,
-            new_expires_at=format_email_datetime(new_end_date),
+            new_expires_at=new_end_date,
             amount_kopeks=renewal_cost,
         )
     except Exception as ws_error:
@@ -2722,6 +2729,21 @@ async def try_resume_disabled_daily_after_topup(
 
     raw_daily_price = getattr(tariff, 'daily_price_kopeks', 0)
     if raw_daily_price <= 0:
+        return False
+
+    # Суточное списание — такая же оплата, как продление: обнуление счётчика
+    # решает общая политика, а не жёсткая константа. Раньше здесь стояло
+    # «никогда», и расход копился через все возобновления после пополнения.
+    reset_traffic = should_reset_traffic_on_daily_charge(tariff)
+    if subscription.status == SubscriptionStatus.LIMITED.value and not reset_traffic:
+        # Списание счётчик не обнулит: либо это выключено настройкой, либо
+        # обнуляет сама панель и снимет лимит без нас. Брать деньги и оставлять
+        # человека в лимите нельзя — то же правило, что у планировщика.
+        logger.info(
+            '🔄 Авто-возобновление daily: подписка в лимите трафика, списание счётчик не обнулит — пропуск',
+            format_user_id=_format_user_id(user),
+            subscription_id=subscription.id,
+        )
         return False
 
     # Lock user row to prevent TOCTOU between discount read and balance charge
@@ -2889,6 +2911,7 @@ async def try_resume_disabled_daily_after_topup(
         )
 
     # Sync with RemnaWave
+    reset_reason = 'суточное списание (авто-возобновление)' if reset_traffic else None
     try:
         subscription_service = SubscriptionService()
         # Multi-tariff keeps panel identity on the subscription, not the user —
@@ -2903,16 +2926,16 @@ async def try_resume_disabled_daily_after_topup(
             await subscription_service.update_remnawave_user(
                 db,
                 subscription,
-                reset_traffic=False,
-                reset_reason=None,
+                reset_traffic=reset_traffic,
+                reset_reason=reset_reason,
                 sync_squads=True,
             )
         else:
             await subscription_service.create_remnawave_user(
                 db,
                 subscription,
-                reset_traffic=False,
-                reset_reason=None,
+                reset_traffic=reset_traffic,
+                reset_reason=reset_reason,
             )
             # POST may ignore activeInternalSquads — follow up with PATCH
             await db.refresh(user)
@@ -2923,6 +2946,8 @@ async def try_resume_disabled_daily_after_topup(
             )
             if _synced_panel_user_id is not None and subscription.connected_squads:
                 try:
+                    # Досыл сквадов — часть того же события оплаты: счётчик уже
+                    # обнулён вызовом выше, второй раз не надо.
                     await subscription_service.update_remnawave_user(
                         db,
                         subscription,
@@ -2935,6 +2960,15 @@ async def try_resume_disabled_daily_after_topup(
                         format_user_id=_format_user_id(user),
                         error=patch_err,
                     )
+
+        if reset_traffic:
+            # Счётчик бота ведут по данным панели, но до ближайшего прохода
+            # мониторинга он показывал бы исчерпанный трафик — и блокировал
+            # реактивацию подписки по своей же проверке лимита.
+            subscription.traffic_used_gb = 0.0
+            await db.commit()
+            if previous_status == SubscriptionStatus.LIMITED.value:
+                await lift_panel_traffic_limit(db, subscription, service=subscription_service)
     except Exception as error:
         logger.error(
             '⚠️ Авто-возобновление daily: не удалось обновить RemnaWave',
@@ -3034,7 +3068,7 @@ async def try_resume_disabled_daily_after_topup(
         await notify_user_subscription_renewed(
             user_id=user.id,
             subscription_id=subscription.id if subscription else None,
-            new_expires_at=format_email_datetime(subscription.end_date),
+            new_expires_at=subscription.end_date,
             amount_kopeks=daily_price,
         )
     except Exception as ws_error:
@@ -3090,6 +3124,7 @@ async def _process_single_cart(
     cart_data: dict,
     *,
     bot: Bot | None = None,
+    manual: bool = False,
 ) -> bool:
     """Process a single cart entry.  Returns True if purchase succeeded."""
     from app.database.crud.transaction import get_user_transactions
@@ -3179,9 +3214,9 @@ async def _process_single_cart(
     if cart_mode == 'daily_tariff_purchase':
         return await _auto_purchase_daily_tariff(db, user, cart_data, bot=bot)
     if cart_mode == 'add_devices':
-        return await _auto_add_devices(db, user, cart_data, bot=bot)
+        return await _auto_add_devices(db, user, cart_data, bot=bot, manual=manual)
     if cart_mode == 'add_traffic':
-        return await _auto_add_traffic(db, user, cart_data, bot=bot)
+        return await _auto_add_traffic(db, user, cart_data, bot=bot, manual=manual)
 
     logger.warning(
         'Автопокупка: неизвестный cart_mode, пропускаем',
@@ -3433,6 +3468,27 @@ async def _auto_purchase_gift(
         total_price=saved_expected_price,
     )
     return True
+
+
+ADDON_CART_MODES = frozenset({'add_traffic', 'add_devices'})
+
+
+async def resume_addon_cart(
+    db: AsyncSession,
+    user: User,
+    cart_data: dict,
+    *,
+    bot: Bot | None = None,
+) -> bool:
+    """Докупка трафика/устройств из сохранённой корзины по явному нажатию.
+
+    Тот же путь, что и тихая автопокупка после пополнения (списание, начисление,
+    синхронизация с панелью, уведомления), но в обход её «тихих» гейтов —
+    глобального выключателя и TTL метки намерения: человек нажал кнопку сам.
+    """
+    if (cart_data.get('cart_mode') or cart_data.get('mode')) not in ADDON_CART_MODES:
+        return False
+    return await _process_single_cart(db, user, cart_data, bot=bot, manual=True)
 
 
 async def auto_purchase_saved_cart_after_topup(
@@ -3726,7 +3782,7 @@ async def _process_legacy_generic_cart(
             await notify_user_subscription_activated(
                 user_id=user.id,
                 subscription_id=subscription.id if subscription else None,
-                expires_at=format_email_datetime(subscription.end_date if subscription else None),
+                expires_at=subscription.end_date if subscription else None,
                 tariff_name='',
             )
         else:
@@ -3734,7 +3790,7 @@ async def _process_legacy_generic_cart(
             await notify_user_subscription_renewed(
                 user_id=user.id,
                 subscription_id=subscription.id if subscription else None,
-                new_expires_at=format_email_datetime(subscription.end_date if subscription else None),
+                new_expires_at=subscription.end_date if subscription else None,
                 amount_kopeks=pricing.final_total,
             )
     except Exception as ws_error:
@@ -3747,4 +3803,4 @@ async def _process_legacy_generic_cart(
     return True
 
 
-__all__ = ['auto_purchase_saved_cart_after_topup']
+__all__ = ['ADDON_CART_MODES', 'auto_purchase_saved_cart_after_topup', 'resume_addon_cart']

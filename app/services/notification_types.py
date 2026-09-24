@@ -76,8 +76,18 @@ class NotificationType(Enum):
     WEBHOOK_DEVICE_DELETED = 'webhook_device_deleted'
     WEBHOOK_TORRENT_DETECTED = 'webhook_torrent_detected'
 
+    # Grace-доступ: временный Telegram-only доступ после истечения/лимита
+    GRACE_ACCESS_GRANTED = 'grace_access_granted'
+    GRACE_ACCESS_ENDED = 'grace_access_ended'
+
     # Support tickets
     TICKET_REPLY = 'ticket_reply'
+
+    # Промогруппа назначена автоматически за сумму трат
+    PROMO_GROUP_AUTO_ASSIGNED = 'promo_group_auto_assigned'
+
+    # User reminders (раздел «Напоминания» в кабинете) — служебный тип, не рассылка
+    USER_REMINDER = 'user_reminder'
 
     # Other
     BROADCAST = 'broadcast'

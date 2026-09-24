@@ -5,13 +5,14 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import and_, case, delete, func, select
+from sqlalchemy import and_, case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError, InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.config import settings
+from app.database.constants import ALIVE_SUBSCRIPTION_STATUSES as _ALIVE_SUBSCRIPTION_STATUSES
 from app.database.crud.notification import clear_notifications
 from app.database.models import (
     Subscription,
@@ -23,20 +24,15 @@ from app.database.models import (
     User,
     UserStatus,
 )
-from app.utils.timezone import format_local_datetime
+from app.utils.subscription_time import ends_within_days
+from app.utils.timezone import format_local_datetime, local_day_start
 
 
 logger = structlog.get_logger(__name__)
 
-# Статусы, при которых подписка считается «живой» (индекс uq_subscriptions_user_tariff_active
-# защищает именно эти статусы). Используется в нескольких местах модуля.
-ALIVE_SUBSCRIPTION_STATUSES: frozenset[str] = frozenset(
-    {
-        SubscriptionStatus.ACTIVE.value,
-        SubscriptionStatus.TRIAL.value,
-        SubscriptionStatus.LIMITED.value,
-    }
-)
+# Статусы «живой» подписки — в app.database.constants; имя здесь оставлено для
+# существующих импортов.
+ALIVE_SUBSCRIPTION_STATUSES = _ALIVE_SUBSCRIPTION_STATUSES
 
 # Кортеж для SQLAlchemy .in_() — вычисляется один раз, не аллоцируется при каждом вызове.
 _ALIVE_SUBSCRIPTION_STATUSES_TUPLE: tuple[str, ...] = tuple(ALIVE_SUBSCRIPTION_STATUSES)
@@ -407,6 +403,10 @@ async def _revive_paid_subscription(
     Mirrors the classic extend branch — extend from the current end_date if still
     alive, otherwise start a fresh period from now and reset used traffic.
     """
+    # Оверлей грейса, осевший в подписке (v4.10–4.11), — не её срок: вернуть до расчёта.
+    from app.services.grace_access_echo import undo_grace_overlay_echo
+
+    await undo_grace_overlay_echo(db, subscription)
     now = datetime.now(UTC)
     was_alive = subscription.end_date is not None and subscription.end_date > now
 
@@ -921,7 +921,8 @@ async def _housekeep_expired_purchases(
     (детерминированная сходимость), в отличие от вычитания `expired_gb`, которое
     бы пропагандировало старую ошибку.
 
-    Безлимит (current_total == 0) не трогает.
+    Тарифная подписка пересобирается от базы ТАРИФА (см. ``_tariff_base_traffic_limit``);
+    без тарифа безлимит (current_total == 0) не трогает.
 
     Возвращает текущий `purchased_traffic_gb` после housekeeping.
     """
@@ -930,9 +931,22 @@ async def _housekeep_expired_purchases(
     # Lock subscription row — защита от lost update с конкурентным add_subscription_traffic
     await _lock_subscription_row(db, subscription)
 
+    # Тарифная подписка: база — тариф, поверх — активные докупки. Так ЛЮБОЕ
+    # продление возвращает подписку к условиям тарифа, в том числе ту, которой
+    # прежняя ошибка (база из FIXED_TRAFFIC_LIMIT_GB) выдала безлимит.
+    tariff_base = await _tariff_base_traffic_limit(db, subscription)
+    if tariff_base is not None:
+        # Тариф без лимита (0) — тоже условие тарифа: подписка безлимитная, даже
+        # если в ней остался чужой лимит (грейс ставил «расход + 1 ГБ», правка
+        # админом). Раньше ноль проходил мимо, и безлимит не возвращался при
+        # продлении (жалоба 2026-09-15). Докупки с безлимитом не складываются.
+        purchased, _ = await _apply_base_limit_preserving_active_purchases(db, subscription, tariff_base, now=now)
+        return purchased
+
     current_total = subscription.traffic_limit_gb or 0
 
-    # Безлимит — housekeeping только истёкших, инвариант не трогаем
+    # Классическая безлимитная подписка (без тарифа, лимит 0) — housekeeping
+    # только истёкших, инвариант не трогаем. Тарифную решает база тарифа выше.
     if current_total == 0:
         await db.execute(
             delete(TrafficPurchase)
@@ -975,6 +989,63 @@ async def _housekeep_expired_purchases(
     subscription.traffic_reset_at = nearest_expiry
 
     return purchased_gb
+
+
+async def _tariff_base_traffic_limit(db: AsyncSession, subscription: Subscription) -> int | None:
+    """Базовый лимит трафика по тарифу подписки; ``None`` — подписка без тарифа.
+
+    Тариф — источник правды для базы: его лимит (0 — безлимит) плюс активные
+    докупки и есть трафик подписки. Тариф с произвольным трафиком хранит выбор
+    человека в самой подписке — тогда база берётся оттуда, а к лимиту тарифа
+    возвращаемся, только если она потеряна.
+    """
+    if subscription.tariff_id is None:
+        return None
+    from app.database.crud.tariff import get_tariff_by_id
+
+    tariff = await get_tariff_by_id(db, subscription.tariff_id)
+    if tariff is None:
+        return None
+    if getattr(tariff, 'custom_traffic_enabled', False):
+        current_base = max((subscription.traffic_limit_gb or 0) - (subscription.purchased_traffic_gb or 0), 0)
+        if current_base > 0:
+            return current_base
+    return max(0, int(tariff.traffic_limit_gb or 0))
+
+
+async def _resolve_base_traffic_limit(db: AsyncSession, subscription: Subscription) -> int:
+    """Базовый лимит трафика подписки (без докупок) для пересборки при продлении.
+
+    Тарифная подписка — по тарифу (``_tariff_base_traffic_limit``). Классическая
+    (без тарифа): в фиксированном режиме — настройка, иначе единственный источник —
+    текущий инвариант ``total = base + purchased``. Глобальные настройки трафика
+    описывают классический режим и к тарифной подписке отношения не имеют.
+    """
+    tariff_base = await _tariff_base_traffic_limit(db, subscription)
+    if tariff_base is not None:
+        return tariff_base
+    if settings.is_traffic_fixed():
+        return settings.get_fixed_traffic_limit()
+    return max((subscription.traffic_limit_gb or 0) - (subscription.purchased_traffic_gb or 0), 0)
+
+
+async def reconcile_tariff_traffic_limit(
+    db: AsyncSession, subscription: Subscription, *, now: datetime | None = None
+) -> None:
+    """Вернуть тарифную подписку к условиям тарифа: база тарифа + активные докупки.
+
+    ``extend_subscription`` делает это на каждом продлении сам. Отдельный вход нужен
+    продлениям, которые идут мимо него — рекуррентным списаниям Lava и Platega,
+    продлевающим через метод модели, — иначе подписка, которой прошлая ошибка
+    выдала безлимит, на таком продлении так и оставалась бы безлимитной.
+    Подписку без тарифа не трогает. Оверлей грейса, осевший в подписке, отсюда не
+    убрать — к этому моменту дату уже сдвинули; такие продления зовут
+    ``undo_grace_overlay_echo`` до расчёта срока (сторож
+    ``test_renewal_undoes_grace_echo_first``).
+    """
+    if subscription.tariff_id is None:
+        return
+    await _housekeep_expired_purchases(db, subscription, now=now or datetime.now(UTC))
 
 
 async def _apply_base_limit_preserving_active_purchases(
@@ -1113,6 +1184,7 @@ async def extend_subscription(
     device_limit: int | None = None,
     connected_squads: list[str] | None = None,
     convert_trial: bool = True,
+    reset_used_traffic: bool | None = None,
     commit: bool = True,
 ) -> Subscription:
     """Продлевает подписку на указанное количество дней.
@@ -1130,6 +1202,11 @@ async def extend_subscription(
             False для бесплатного релейбла/смены тарифа без оплаты, иначе триал
             превратится в фантомную платную подписку и попадёт в авто-продление
             (баг #629889).
+        reset_used_traffic: решение вызывающего, обнулять ли израсходованный
+            трафик при переданном ``traffic_limit_gb``. Вызывающий тем же решением
+            сбрасывает (или нет) счётчик в панели — иначе бот показывает расход 0,
+            а панель настоящий. ``None`` — прежнее правило: при смене тарифа по
+            ``RESET_TRAFFIC_ON_TARIFF_SWITCH``, при продлении всегда.
     """
     current_time = datetime.now(UTC)
 
@@ -1138,6 +1215,14 @@ async def extend_subscription(
     # Повторный lock в той же транзакции — noop (SubscriptionRenewalService уже мог
     # взять lock через with_for_update).
     await _lock_subscription_row(db, subscription)
+
+    if days > 0:
+        # Оверлей грейса, осевший в подписке (v4.10–4.11 принимали его за продление
+        # в панели), — не условия подписки: сквад грейса, «расход + квота», дата
+        # конца грейса. Возвращаем прежние значения до расчёта нового срока.
+        from app.services.grace_access_echo import undo_grace_overlay_echo
+
+        await undo_grace_overlay_echo(db, subscription)
 
     logger.info('🔄 Продление подписки', subscription_id=subscription.id, days=days)
     logger.info(
@@ -1240,7 +1325,7 @@ async def extend_subscription(
         subscription.status = SubscriptionStatus.ACTIVE.value
         logger.info('🔄 Статус подписки изменён с trial на ACTIVE', subscription_id=subscription.id)
     elif days > 0 and subscription.status == SubscriptionStatus.PENDING.value:
-        logger.warning('⚠️ Попытка продлить PENDING подписку , дни', subscription_id=subscription.id, days=days)
+        logger.warning('⚠️ Попытка продлить PENDING подписку', subscription_id=subscription.id, days=days)
 
     # Обновляем параметры тарифа, если переданы
     if tariff_id is not None:
@@ -1262,8 +1347,12 @@ async def extend_subscription(
 
     if traffic_limit_gb is not None:
         old_traffic = subscription.traffic_limit_gb
-        # Сброс использованного трафика: при смене тарифа — по настройке, при продлении — всегда
-        if is_tariff_change:
+        # Сброс использованного трафика: при смене тарифа — по настройке, при продлении — всегда;
+        # вызывающий, который сам решает про панель, передаёт своё решение.
+        if reset_used_traffic is not None:
+            if reset_used_traffic:
+                subscription.traffic_used_gb = 0.0
+        elif is_tariff_change:
             if settings.RESET_TRAFFIC_ON_TARIFF_SWITCH:
                 subscription.traffic_used_gb = 0.0
         else:
@@ -1306,17 +1395,11 @@ async def extend_subscription(
             # Истекают только истёкшие пакеты, активные сохраняются.
             # Раньше тут был хардкод DELETE всех TrafficPurchase — отсюда жалобы
             # «при продлении докупленный трафик слетел».
-            # Base берём из настроек (классический режим без тарифа), а не из
-            # `total - purchased` — если инвариант уже поломан, мы бы зафиксировали баг.
-            if settings.is_traffic_fixed():
-                base_limit = settings.get_fixed_traffic_limit()
-            else:
-                # Selectable mode без тарифа: единственный достоверный источник —
-                # текущий инвариант. Если он сломан, выправится при следующем смене тарифа.
-                base_limit = max(
-                    (subscription.traffic_limit_gb or 0) - (subscription.purchased_traffic_gb or 0),
-                    0,
-                )
+            # Базу решает тариф подписки, если он есть (см. _resolve_base_traffic_limit):
+            # раньше сюда попадала и истёкшая ТАРИФНАЯ подписка, а базу ей считали
+            # по правилам классического режима — из FIXED_TRAFFIC_LIMIT_GB, и при нуле
+            # там человек после продления получал безлимит вместо лимита тарифа.
+            base_limit = await _resolve_base_traffic_limit(db, subscription)
             purchased, _ = await _apply_base_limit_preserving_active_purchases(
                 db, subscription, base_limit, now=current_time
             )
@@ -1678,7 +1761,7 @@ async def update_subscription_autopay(
     subscription: Subscription,
     enabled: bool,
     days_before: int | None = None,
-    period_days: int | None | object = _AUTOPAY_PERIOD_UNSET,
+    period_days: int | object | None = _AUTOPAY_PERIOD_UNSET,
 ) -> Subscription:
     subscription.autopay_enabled = enabled
     if days_before is not None:
@@ -1873,9 +1956,9 @@ async def get_subscriptions_for_autopay(db: AsyncSession) -> list[Subscription]:
         if subscription.tariff and getattr(subscription.tariff, 'is_daily', False):
             continue
 
-        days_until_expiry = (subscription.end_date - current_time).days
-
-        if days_until_expiry <= subscription.autopay_days_before and subscription.end_date > current_time:
+        if subscription.end_date > current_time and ends_within_days(
+            subscription.end_date, subscription.autopay_days_before, current_time
+        ):
             ready_for_autopay.append(subscription)
 
     return ready_for_autopay
@@ -1900,7 +1983,7 @@ async def get_subscriptions_statistics(db: AsyncSession) -> dict:
     paid_subscriptions = active_subscriptions - trial_subscriptions
 
     now = datetime.now(UTC)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = local_day_start(now)
     week_ago = today_start - timedelta(days=7)
     month_ago = today_start - timedelta(days=30)
 
@@ -2332,11 +2415,38 @@ async def expire_subscription(db: AsyncSession, subscription: Subscription) -> S
     return subscription
 
 
+async def expire_subscription_if_still_due(db: AsyncSession, subscription: Subscription) -> bool:
+    """Погасить подписку, только если в базе она всё ещё ACTIVE с прошедшей датой.
+
+    Мониторинг решает по объекту, прочитанному чуть раньше; продление, закоммиченное
+    между чтением и записью, обычная запись статуса затёрла бы — оплаченная подписка
+    стала бы истёкшей. Условие в самом UPDATE делает проверку и запись одним шагом.
+    Возвращает, погашена ли подписка этим вызовом.
+    """
+    now = datetime.now(UTC)
+    result = await db.execute(
+        update(Subscription)
+        .where(
+            Subscription.id == subscription.id,
+            Subscription.status == SubscriptionStatus.ACTIVE.value,
+            Subscription.end_date <= now,
+        )
+        .values(status=SubscriptionStatus.EXPIRED.value, updated_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    await db.refresh(subscription)
+    expired = result.rowcount == 1
+    if expired:
+        logger.info('⏰ Подписка пользователя помечена как истёкшая', user_id=subscription.user_id)
+    return expired
+
+
 async def check_and_update_subscription_status(db: AsyncSession, subscription: Subscription) -> Subscription:
     current_time = datetime.now(UTC)
 
     logger.info(
-        '🔍 Проверка статуса подписки , текущий статус дата окончания текущее время',
+        '🔍 Проверка статуса подписки',
         subscription_id=subscription.id,
         subscription_status=subscription.status,
         format_local_datetime=format_local_datetime(subscription.end_date),
@@ -2561,7 +2671,7 @@ async def create_pending_subscription(
         await db.refresh(existing_subscription)
 
         logger.info(
-            '♻️ Обновлена ожидающая подписка пользователя , ID метод оплаты',
+            '♻️ Обновлена ожидающая подписка',
             trial_label=trial_label,
             user_id=user_id,
             existing_subscription_id=existing_subscription.id,
@@ -2590,7 +2700,7 @@ async def create_pending_subscription(
     await db.refresh(subscription)
 
     logger.info(
-        '💳 Создана ожидающая подписка для пользователя , ID метод оплаты',
+        '💳 Создана ожидающая подписка',
         trial_label=trial_label,
         user_id=user_id,
         subscription_id=subscription.id,
@@ -2944,6 +3054,58 @@ async def get_expired_daily_subscriptions_for_recovery(db: AsyncSession) -> list
     if subscriptions:
         logger.warning(
             '⚠️ Найдено EXPIRED суточных подписок для восстановления (ошибочно экспайрены)',
+            subscriptions_count=len(subscriptions),
+        )
+
+    return list(subscriptions)
+
+
+async def get_limited_daily_subscriptions_for_recovery(db: AsyncSession) -> list[Subscription]:
+    """Суточные подписки, застрявшие в LIMITED (панель зарезала их по лимиту трафика).
+
+    Списание берёт только ACTIVE, авто-возобновление знает про DISABLED и
+    EXPIRED — LIMITED не подхватывал никто, и оплаченная суточная подписка
+    оставалась в этом статусе навсегда.
+
+    Берём только те, у которых наступили следующие сутки: возврат идёт вместе
+    со списанием за новый день, и обнулять счётчик раньше срока нельзя — это
+    выдало бы за календарный день две квоты вместо одной.
+    """
+    from app.database.models import Tariff
+
+    now = datetime.now(UTC)
+    one_day_ago = now - timedelta(hours=24)
+
+    query = (
+        select(Subscription)
+        .join(Tariff, Subscription.tariff_id == Tariff.id)
+        .join(User, Subscription.user_id == User.id)
+        .options(
+            selectinload(Subscription.user),
+            selectinload(Subscription.tariff),
+        )
+        .where(
+            and_(
+                Tariff.is_daily.is_(True),
+                Tariff.is_active.is_(True),
+                Subscription.status == SubscriptionStatus.LIMITED.value,
+                User.status == UserStatus.ACTIVE.value,
+                # is_(False) не ловит NULL, поэтому добавляем OR is_(None)
+                (Subscription.is_daily_paused.is_(False) | Subscription.is_daily_paused.is_(None)),
+                Subscription.is_trial.is_(False),
+                # Баланс > 0 (грубый пред-фильтр; цену со скидкой считает _process_single_charge)
+                User.balance_kopeks > 0,
+                ((Subscription.last_daily_charge_at.is_(None)) | (Subscription.last_daily_charge_at < one_day_ago)),
+            )
+        )
+    )
+
+    result = await db.execute(query)
+    subscriptions = result.scalars().all()
+
+    if subscriptions:
+        logger.info(
+            '🔍 Найдено суточных подписок с исчерпанным трафиком для возврата',
             subscriptions_count=len(subscriptions),
         )
 

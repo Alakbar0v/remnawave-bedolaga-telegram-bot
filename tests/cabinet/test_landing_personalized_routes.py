@@ -126,7 +126,7 @@ async def test_get_landing_config_without_tgid_has_no_personalization() -> None:
         patch.object(landing_routes.RateLimitCache, 'is_ip_rate_limited', AsyncMock(return_value=False)),
         patch.object(landing_routes, 'get_active_landing_by_slug', AsyncMock(return_value=landing)),
         patch.object(landing_routes, '_load_landing_tariffs', AsyncMock(return_value=[])) as load_mock,
-        patch.object(landing_routes, '_get_method_defaults', lambda: {}),
+        patch.object(landing_routes, '_get_method_defaults', dict),
     ):
         response = await landing_routes.get_landing_config(
             raw_request=_request(), slug='promo', lang='ru', tgid=None, db=AsyncMock()
@@ -148,7 +148,7 @@ async def test_get_landing_config_tgid_not_found() -> None:
         patch.object(landing_routes, 'get_active_landing_by_slug', AsyncMock(return_value=landing)),
         patch.object(landing_routes, 'get_user_by_telegram_id', AsyncMock(return_value=None)),
         patch.object(type(landing_routes.settings), 'get_bot_username', lambda self: 'testbot'),
-        patch.object(landing_routes, '_get_method_defaults', lambda: {}),
+        patch.object(landing_routes, '_get_method_defaults', dict),
     ):
         response = await landing_routes.get_landing_config(
             raw_request=_request(), slug='promo', lang='ru', tgid=123456789, db=AsyncMock()
@@ -175,7 +175,7 @@ async def test_get_landing_config_tgid_has_active_subscription() -> None:
         patch.object(landing_routes, 'user_has_active_subscription', AsyncMock(return_value=True)),
         patch('app.database.crud.subscription.get_subscription_by_user_id', AsyncMock(return_value=active_sub)),
         patch.object(type(landing_routes.settings), 'get_bot_username', lambda self: 'testbot'),
-        patch.object(landing_routes, '_get_method_defaults', lambda: {}),
+        patch.object(landing_routes, '_get_method_defaults', dict),
         patch.object(landing_routes, '_load_landing_tariffs', AsyncMock()) as load_mock,
     ):
         response = await landing_routes.get_landing_config(
@@ -202,7 +202,7 @@ async def test_get_landing_config_tgid_ok_uses_personal_prices() -> None:
         patch.object(landing_routes, 'user_has_active_subscription', AsyncMock(return_value=False)),
         patch.object(landing_routes, '_load_landing_tariffs', AsyncMock(return_value=[])) as load_mock,
         patch.object(type(landing_routes.settings), 'get_bot_username', lambda self: 'testbot'),
-        patch.object(landing_routes, '_get_method_defaults', lambda: {}),
+        patch.object(landing_routes, '_get_method_defaults', dict),
     ):
         response = await landing_routes.get_landing_config(
             raw_request=_request(), slug='promo', lang='ru', tgid=123456789, db=AsyncMock()
@@ -283,7 +283,7 @@ async def test_purchase_stores_numeric_contact_and_user_id() -> None:
         patch.object(landing_routes, '_resolve_personalized_user', AsyncMock(return_value=user)),
         patch.object(landing_routes, 'user_has_active_subscription', AsyncMock(return_value=False)),
         patch.object(landing_routes, 'lock_user_for_pricing', AsyncMock(return_value=user)),
-        patch.object(landing_routes, '_get_method_defaults', lambda: {}),
+        patch.object(landing_routes, '_get_method_defaults', dict),
         patch.object(landing_routes, 'validate_and_calculate', AsyncMock(return_value=(tariff, 72000))) as vac_mock,
         patch.object(landing_routes, 'create_purchase', AsyncMock(return_value=purchase)) as create_mock,
         patch.object(
@@ -350,8 +350,9 @@ def test_purchase_request_validator_accepts_plain_contacts() -> None:
 
 
 def test_status_response_personalized_hides_subscription_url_and_credentials() -> None:
-    from app.cabinet.routes.landing import _build_purchase_status_response
     from datetime import UTC, datetime
+
+    from app.cabinet.routes.landing import _build_purchase_status_response
 
     purchase = SimpleNamespace(
         tariff=SimpleNamespace(name='Personal'),
@@ -378,7 +379,7 @@ def test_status_response_personalized_hides_subscription_url_and_credentials() -
 
     assert response.mode == 'telegram'
     assert response.requires_activation is False
-    assert response.subscription_url is None, 'tgid is unsigned; must never hand out someone else\'s connection link'
+    assert response.subscription_url is None, "tgid is unsigned; must never hand out someone else's connection link"
     assert response.subscription_crypto_link is None
     assert response.cabinet_email is None
     assert response.cabinet_password is None
@@ -389,8 +390,9 @@ def test_status_response_personalized_hides_subscription_url_and_credentials() -
 def test_status_response_anonymous_still_exposes_subscription_url() -> None:
     """Regression guard: the anonymous flow's existing within-TTL exposure of
     subscription_url must be unaffected by the personalized suppression."""
-    from app.cabinet.routes.landing import _build_purchase_status_response
     from datetime import UTC, datetime
+
+    from app.cabinet.routes.landing import _build_purchase_status_response
 
     purchase = SimpleNamespace(
         tariff=SimpleNamespace(name='Basic'),

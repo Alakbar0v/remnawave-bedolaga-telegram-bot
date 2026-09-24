@@ -47,10 +47,11 @@ from app.database.crud.user_message import get_random_active_message
 from app.database.models import User
 from app.localization.texts import Texts
 from app.utils.formatters import format_username_link
+from app.utils.logo_fingerprint import logo_version
 from app.utils.miniapp_buttons import build_miniapp_startapp_url
 from app.utils.promo_offer import build_promo_offer_hint, build_test_access_hint
 from app.utils.rich_buttons import render_keyboard_as_rich_html
-from app.utils.subscription_utils import get_happ_cryptolink_redirect_link
+from app.utils.subscription_time import local_days_until
 from app.utils.timezone import format_local_datetime
 from app.utils.validators import sanitize_html
 
@@ -139,7 +140,8 @@ def _resolve_rich_logo_url() -> str:
 
     Иначе, если задан WEBHOOK_URL (публичный origin нашего FastAPI) и файл
     LOGO_FILE существует, логотип отдаётся собственным эндпоинтом
-    /cabinet/branding/bot-logo.
+    /cabinet/branding/bot-logo?v=<отпечаток файла>. Telegram кэширует картинку
+    по адресу: без версии заменённый файл показывался старым до ручного ``?v=``.
     """
     if _logo_unavailable:
         return ''
@@ -159,7 +161,10 @@ def _resolve_rich_logo_url() -> str:
     parsed = urlparse(webhook_url)
     if not parsed.scheme or not parsed.netloc:
         return ''
-    return f'{parsed.scheme}://{parsed.netloc}/cabinet/branding/bot-logo'
+    version = logo_version(Path(settings.LOGO_FILE))
+    if version is None:
+        return ''
+    return f'{parsed.scheme}://{parsed.netloc}/cabinet/branding/bot-logo?v={version}'
 
 
 def _is_media_fetch_error(error: Exception) -> bool:
@@ -378,7 +383,7 @@ def _build_subscriptions_table(subscriptions, texts) -> str:
         end_date = getattr(subscription, 'end_date', None)
         end_date_text = format_local_datetime(end_date, '%d.%m.%Y') if end_date else ''
         if end_date and end_date > current_time and actual_status in {'active', 'trial', 'limited'}:
-            days_left = (end_date - current_time).days
+            days_left = local_days_until(end_date, current_time)
             days_text = texts.t('MAIN_MENU_RICH_DAYS_LEFT', 'осталось {days} дн.').replace('{days}', str(days_left))
             until_cell = f'{_tg_time(end_date, "d", end_date_text)} ({_rich_text(days_text)})'
         elif end_date:
@@ -444,7 +449,7 @@ async def _build_single_subscription_block(user: User, texts, db: AsyncSession) 
         total_seconds = (end_date - start_date).total_seconds() if start_date else 0
         relative_template = texts.t('MAIN_MENU_RICH_EXPIRES_RELATIVE', '⏳ истекает {when}')
         days_left_text = texts.t('MAIN_MENU_RICH_DAYS_LEFT', 'осталось {days} дн.').replace(
-            '{days}', str(max((end_date - current_time).days, 0))
+            '{days}', str(local_days_until(end_date, current_time))
         )
         relative_line = _rich_text(relative_template).replace('{when}', _tg_time(end_date, 'r', days_left_text))
         lines.append(f'<code>{_progress_bar(seconds_left, total_seconds)}</code> {relative_line}')

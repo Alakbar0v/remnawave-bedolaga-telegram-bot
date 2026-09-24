@@ -33,7 +33,9 @@ class ParsedLink:
 @dataclass(frozen=True)
 class RejectedLink:
     raw: str
-    reason: str  # stub | unsupported_scheme | malformed
+    reason: str  # stub | unsupported_scheme | malformed | subscription_failed
+    #: Причина словами для админа («Подписка истекла 01.09.2024»), если она известна.
+    detail: str | None = None
 
 
 def parse_links(text: str) -> tuple[list[ParsedLink], list[RejectedLink]]:
@@ -127,5 +129,5 @@ def expand_raw_input(text: str) -> list[str]:
             lines.append(line)
             continue
         decoded = decode_subscription_body(line)
-        lines.extend(decoded if decoded else [line])
+        lines.extend(decoded or [line])
     return lines

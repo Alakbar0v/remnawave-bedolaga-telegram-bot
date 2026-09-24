@@ -20,13 +20,13 @@ from app.config import settings
 from app.database.crud.user import get_user_by_telegram_id
 from app.database.database import AsyncSessionLocal, get_db
 from app.database.models import Subscription
+from app.keyboards.inline import RETURN_CHECKOUT_ICON_CUSTOM_EMOJI_ID, SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID
 from app.localization.texts import get_texts
 from app.services.subscription_checkout_service import (
     has_subscription_checkout_draft,
     should_offer_checkout_resume,
 )
 from app.services.user_cart_service import user_cart_service
-from app.keyboards.inline import RETURN_CHECKOUT_ICON_CUSTOM_EMOJI_ID, SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID
 from app.utils.miniapp_buttons import build_main_menu_button, build_miniapp_or_callback_button
 from app.utils.payment_logger import payment_logger as logger
 
@@ -420,12 +420,15 @@ async def send_cart_notification_after_topup(
     # В приоритете всегда сохраненная корзина: она отражает явный выбор пользователя
     # (период/тариф/сумма). Автопродление expired — только когда корзины нет.
     if cart_data:
-        cart_total = cart_data.get('total_price', 0)
+        # Подписочные корзины несут total_price, корзины докупки трафика/устройств —
+        # price_kopeks. Раньше проверялся только total_price, и докупка после
+        # пополнения молча выходила здесь, не дойдя до автопокупки.
+        cart_total = cart_data.get('total_price') or cart_data.get('price_kopeks') or 0
         if not cart_total:
             logger.warning(
-                'Сохраненная корзина найдена, но total_price отсутствует или некорректен',
+                'Сохраненная корзина найдена, но цена отсутствует или некорректна',
                 user_id=user.id,
-                cart_total=cart_total,
+                cart_mode=cart_data.get('cart_mode'),
             )
             return False
 

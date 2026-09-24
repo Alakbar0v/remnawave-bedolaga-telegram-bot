@@ -101,7 +101,7 @@ def _panel_double(monkeypatch, api, *, multi_tariff: bool) -> tuple[list, list]:
     monkeypatch.setattr('app.services.remnawave_service.RemnaWaveService', Service)
     monkeypatch.setattr('app.services.grace_access_runtime.update_panel_user_grace_safe', update_panel_user)
     monkeypatch.setattr('app.services.grace_access_runtime.create_panel_user_grace_safe', create_panel_user)
-    monkeypatch.setattr('app.services.subscription_service.get_traffic_reset_strategy', lambda _tariff: 'NO_RESET')
+    monkeypatch.setattr('app.services.panel_sync.payload.get_traffic_reset_strategy', lambda _tariff: 'NO_RESET')
     monkeypatch.setattr('app.utils.subscription_utils.resolve_hwid_device_limit_for_payload', lambda _sub: None)
     return updated, created
 
@@ -110,7 +110,7 @@ def _db(*, panel_id_taken: bool) -> AsyncMock:
     """SELECT «держит ли id другая строка» — единственный запрос помощника к базе."""
     db = AsyncMock()
     holder = 999 if panel_id_taken else None
-    db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: holder))
+    db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: holder, first=lambda: None))
     return db
 
 

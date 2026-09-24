@@ -12,9 +12,9 @@ from app.database.crud.discount_offer import (
 )
 from app.database.crud.promo_offer_template import get_promo_offer_template_by_id
 from app.database.models import User
+from app.keyboards.inline import SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID
 from app.localization.texts import get_texts
 from app.services.promo_offer_service import promo_offer_service
-from app.keyboards.inline import SUBSCRIPTION_ICON_CUSTOM_EMOJI_ID
 from app.utils.miniapp_buttons import build_miniapp_or_callback_button
 from app.utils.pricing_utils import (
     format_period_description,
@@ -22,6 +22,7 @@ from app.utils.pricing_utils import (
 from app.utils.promo_offer import (
     build_promo_offer_hint,
 )
+from app.utils.timezone import format_local_datetime
 
 from .common import _format_text_with_placeholders
 
@@ -194,7 +195,7 @@ async def claim_discount_offer(
             },
         )
 
-        expires_text = expires_at.strftime('%d.%m.%Y %H:%M') if expires_at else ''
+        expires_text = format_local_datetime(expires_at, '%d.%m.%Y %H:%M') if expires_at else ''
         success_message = texts.get(
             'TEST_ACCESS_ACTIVATED_MESSAGE',
             '🎉 Тестовые сервера подключены! Доступ активен до {expires_at}.',
@@ -267,7 +268,7 @@ async def claim_discount_offer(
         '🎉 Скидка {percent}% активирована! Она автоматически применится при следующей оплате.',
     )
 
-    expires_text = discount_expires_at.strftime('%d.%m.%Y %H:%M') if discount_expires_at else ''
+    expires_text = format_local_datetime(discount_expires_at, '%d.%m.%Y %H:%M') if discount_expires_at else ''
 
     format_values: dict[str, Any] = {'percent': discount_percent}
 

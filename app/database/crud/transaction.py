@@ -5,7 +5,9 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.database.local_date import as_date, local_date_expr
 from app.database.models import PaymentMethod, Transaction, TransactionType, User
+from app.utils.timezone import local_day_bounds, local_day_start, local_month_start
 
 
 logger = structlog.get_logger(__name__)
@@ -339,6 +341,31 @@ async def get_user_total_spent_kopeks(db: AsyncSession, user_id: int) -> int:
     return int(result.scalar_one())
 
 
+async def get_last_subscription_payment_at(db: AsyncSession, user_id: int) -> datetime | None:
+    """Когда человек последний раз платил за подписку (завершённая оплата подписки).
+
+    Нужна панельной сверке: пока с оплаты не прошло двух суток, более ранняя дата
+    из панели считается устаревшим снимком, а не правкой оператора.
+    """
+    result = await db.execute(
+        select(func.max(Transaction.created_at)).where(
+            and_(
+                Transaction.user_id == user_id,
+                Transaction.is_completed.is_(True),
+                Transaction.type == TransactionType.SUBSCRIPTION_PAYMENT.value,
+            )
+        )
+    )
+    value = result.scalar_one_or_none()
+    # Не дата (пустая выборка, чужой драйвер, подменённая сессия в тестах) —
+    # оплаты не было: сторож оплаченного срока молчит, панель — истина как раньше.
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value
+
+
 async def complete_transaction(db: AsyncSession, transaction: Transaction) -> Transaction:
     transaction.is_completed = True
     transaction.completed_at = datetime.now(UTC)
@@ -376,7 +403,7 @@ async def get_transactions_statistics(
     db: AsyncSession, start_date: datetime | None = None, end_date: datetime | None = None
 ) -> dict:
     if not start_date:
-        start_date = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start_date = local_month_start()
     if not end_date:
         end_date = datetime.now(UTC)
 
@@ -457,10 +484,15 @@ async def get_transactions_statistics(
         row.payment_method: {'count': row.count, 'amount': row.total_amount} for row in payment_methods_result
     }
 
-    today = datetime.now(UTC).date()
+    # «Сегодня» — календарный день settings.TIMEZONE, границы в UTC (#3136).
+    today_start, today_end = local_day_bounds()
     today_result = await db.execute(
         select(func.count(Transaction.id)).where(
-            and_(Transaction.is_completed == True, Transaction.created_at >= today)
+            and_(
+                Transaction.is_completed == True,
+                Transaction.created_at >= today_start,
+                Transaction.created_at < today_end,
+            )
         )
     )
     transactions_today = today_result.scalar()
@@ -471,7 +503,8 @@ async def get_transactions_statistics(
             and_(
                 Transaction.type.in_([TransactionType.DEPOSIT.value, TransactionType.SUBSCRIPTION_PAYMENT.value]),
                 Transaction.is_completed == True,
-                Transaction.created_at >= today,
+                Transaction.created_at >= today_start,
+                Transaction.created_at < today_end,
                 Transaction.payment_method.in_(REAL_PAYMENT_METHODS),
             )
         )
@@ -493,12 +526,17 @@ async def get_transactions_statistics(
 
 
 async def get_revenue_by_period(db: AsyncSession, days: int = 30) -> list[dict]:
-    """Доход по дням — реальные платежи + прямые покупки подписок (лендинги)."""
-    start_date = datetime.now(UTC) - timedelta(days=days)
+    """Доход по календарным дням settings.TIMEZONE за последние ``days`` дней, включая сегодня.
+
+    Реальные платежи + прямые покупки подписок (лендинги). ``date`` в строках —
+    всегда ``date``, на любой БД.
+    """
+    start_date = local_day_start(days_back=max(days, 1) - 1)
+    day = local_date_expr(Transaction.created_at, db)
 
     result = await db.execute(
         select(
-            func.date(Transaction.created_at).label('date'),
+            day.label('date'),
             func.coalesce(func.sum(func.abs(Transaction.amount_kopeks)), 0).label('amount'),
         )
         .where(
@@ -509,11 +547,11 @@ async def get_revenue_by_period(db: AsyncSession, days: int = 30) -> list[dict]:
                 Transaction.payment_method.in_(REAL_PAYMENT_METHODS),
             )
         )
-        .group_by(func.date(Transaction.created_at))
-        .order_by(func.date(Transaction.created_at))
+        .group_by(day)
+        .order_by(day)
     )
 
-    return [{'date': row.date, 'amount_kopeks': row.amount} for row in result]
+    return [{'date': as_date(row.date), 'amount_kopeks': row.amount} for row in result]
 
 
 async def find_tribute_transactions_by_payment_id(

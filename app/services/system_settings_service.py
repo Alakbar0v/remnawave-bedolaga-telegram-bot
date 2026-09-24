@@ -347,6 +347,7 @@ class BotConfigurationService:
         'MAX_ACTIVE_SUBSCRIPTIONS': 'SUBSCRIPTIONS_CORE',
         'BASE_PROMO_GROUP_PERIOD_DISCOUNTS_ENABLED': 'SUBSCRIPTIONS_CORE',
         'BASE_PROMO_GROUP_PERIOD_DISCOUNTS': 'SUBSCRIPTIONS_CORE',
+        'PROMO_GROUP_AUTO_ASSIGN_NOTIFY_USER': 'SUBSCRIPTIONS_CORE',
         'DEFAULT_AUTOPAY_ENABLED': 'AUTOPAY',
         'DEFAULT_AUTOPAY_DAYS_BEFORE': 'AUTOPAY',
         'MIN_BALANCE_FOR_AUTOPAY_KOPEKS': 'AUTOPAY',
@@ -453,6 +454,7 @@ class BotConfigurationService:
         'REMNAWAVE_USER_USERNAME_TEMPLATE': 'REMNAWAVE',
         'REMNAWAVE_AUTO_SYNC_ENABLED': 'REMNAWAVE',
         'REMNAWAVE_AUTO_SYNC_TIMES': 'REMNAWAVE',
+        'REMNAWAVE_API_REQUESTS_PER_MINUTE': 'REMNAWAVE',
         'CABINET_REMNA_SUB_CONFIG': 'MINIAPP',
         # Date format applied to email-template variables
         # (expires_at, new_expires_at). Lives in the TIMEZONE
@@ -479,6 +481,7 @@ class BotConfigurationService:
         'PRICE_TRAFFIC': 'TRAFFIC_PACKAGES',
         'TRAFFIC_': 'TRAFFIC',
         'REFERRAL_': 'REFERRAL',
+        'USER_REMINDERS_': 'NOTIFICATIONS',
         'AUTOPAY_': 'AUTOPAY',
         'TELEGRAM_OIDC_': 'TELEGRAM_OIDC',
         'TELEGRAM_WIDGET_': 'TELEGRAM_WIDGET',
@@ -700,6 +703,104 @@ class BotConfigurationService:
     }
 
     SETTING_HINTS: dict[str, dict[str, str]] = {
+        'SUPPORT_ADMIN_TICKET_NOTIFICATIONS_ENABLED': {
+            'description': 'Сообщать администраторам в Telegram о новых тикетах и ответах пользователей.',
+            'format': 'Булево значение (да/нет).',
+            'example': 'true',
+            'warning': 'Действует вместе с общими оповещениями администраторам: выключены они — не будет и этих.',
+            'dependencies': 'ADMIN_NOTIFICATIONS_ENABLED, ADMIN_NOTIFICATIONS_TICKET_TOPIC_ID',
+        },
+        'SUPPORT_USER_TICKET_NOTIFICATIONS_ENABLED': {
+            'description': 'Сообщать пользователю в Telegram об ответе поддержки на его тикет.',
+            'format': 'Булево значение (да/нет).',
+            'example': 'true',
+            'warning': 'Общий выключатель уведомлений пользователям (ENABLE_NOTIFICATIONS) главнее.',
+            'dependencies': 'ENABLE_NOTIFICATIONS',
+        },
+        'SUPPORT_CABINET_USER_NOTIFICATIONS_ENABLED': {
+            'description': 'Показывать пользователю в кабинете уведомление об ответе на тикет.',
+            'format': 'Булево значение (да/нет).',
+            'example': 'true',
+            'warning': 'Касается только кабинета; уведомления в Telegram — отдельный переключатель.',
+            'dependencies': 'SUPPORT_USER_TICKET_NOTIFICATIONS_ENABLED',
+        },
+        'SUPPORT_CABINET_ADMIN_NOTIFICATIONS_ENABLED': {
+            'description': 'Показывать администраторам в кабинете уведомления о новых тикетах.',
+            'format': 'Булево значение (да/нет).',
+            'example': 'true',
+            'warning': 'Касается только кабинета; оповещения в Telegram — отдельный переключатель.',
+            'dependencies': 'SUPPORT_ADMIN_TICKET_NOTIFICATIONS_ENABLED',
+        },
+        'SUPPORT_MODERATOR_IDS': {
+            'description': 'Модераторы поддержки: пользователи, которым доступны тикеты без прав администратора.',
+            'format': 'Telegram ID через запятую, например 123456789,987654321.',
+            'example': '',
+            'warning': 'Пусто — модераторов нет. Меняется и из меню поддержки в админке бота.',
+            'dependencies': 'SUPPORT_SYSTEM_MODE',
+        },
+        'NOTIFICATION_TRIAL_CHANNEL_UNSUBSCRIBED_ENABLED': {
+            'description': 'Писать пользователю, когда он отписался от обязательного канала и доступ приостановлен.',
+            'format': 'Булево значение (да/нет).',
+            'example': 'true',
+            'warning': 'Выключено — пользователь узнаёт о приостановке только из бота.',
+            'dependencies': 'CHANNEL_IS_REQUIRED_FOR_TRIAL, CHANNEL_REQUIRED_FOR_ALL',
+        },
+        'NOTIFICATION_EXPIRED_1D_ENABLED': {
+            'description': 'Напоминание через день после истечения подписки (без скидки).',
+            'format': 'Булево значение (да/нет).',
+            'example': 'true',
+            'warning': 'Действует сразу, без перезапуска. Общий выключатель ENABLE_NOTIFICATIONS главнее.',
+            'dependencies': 'ENABLE_NOTIFICATIONS',
+        },
+        'NOTIFICATION_EXPIRED_WAVE2_ENABLED': {
+            'description': 'Предложение со скидкой через 2–3 дня после истечения подписки (expired_discount_wave2).',
+            'format': 'Булево значение (да/нет).',
+            'example': 'true',
+            'warning': 'Выключено — предложения этой волны не создаются и не отправляются. Действует сразу.',
+            'dependencies': 'NOTIFICATION_EXPIRED_WAVE2_DISCOUNT_PERCENT, NOTIFICATION_EXPIRED_WAVE2_VALID_HOURS',
+        },
+        'NOTIFICATION_EXPIRED_WAVE2_DISCOUNT_PERCENT': {
+            'description': 'Размер скидки в предложении через 2–3 дня после истечения.',
+            'format': 'Целое число от 0 до 100 (процентов).',
+            'example': '10',
+            'warning': 'Скидка суммируется с промогруппой пользователя.',
+            'dependencies': 'NOTIFICATION_EXPIRED_WAVE2_ENABLED',
+        },
+        'NOTIFICATION_EXPIRED_WAVE2_VALID_HOURS': {
+            'description': 'Сколько часов действует скидка из предложения через 2–3 дня.',
+            'format': 'Целое число от 1 до 168 (часов).',
+            'example': '24',
+            'warning': 'Считается с момента отправки предложения.',
+            'dependencies': 'NOTIFICATION_EXPIRED_WAVE2_ENABLED',
+        },
+        'NOTIFICATION_EXPIRED_WAVE3_ENABLED': {
+            'description': 'Позднее предложение со скидкой через N дней после истечения (expired_discount_wave3).',
+            'format': 'Булево значение (да/нет).',
+            'example': 'true',
+            'warning': 'Выключено — предложения этой волны не создаются и не отправляются. Действует сразу.',
+            'dependencies': 'NOTIFICATION_EXPIRED_WAVE3_TRIGGER_DAYS, NOTIFICATION_EXPIRED_WAVE3_DISCOUNT_PERCENT',
+        },
+        'NOTIFICATION_EXPIRED_WAVE3_DISCOUNT_PERCENT': {
+            'description': 'Размер скидки в позднем предложении.',
+            'format': 'Целое число от 0 до 100 (процентов).',
+            'example': '20',
+            'warning': 'Скидка суммируется с промогруппой пользователя.',
+            'dependencies': 'NOTIFICATION_EXPIRED_WAVE3_ENABLED',
+        },
+        'NOTIFICATION_EXPIRED_WAVE3_VALID_HOURS': {
+            'description': 'Сколько часов действует скидка из позднего предложения.',
+            'format': 'Целое число от 1 до 168 (часов).',
+            'example': '24',
+            'warning': 'Считается с момента отправки предложения.',
+            'dependencies': 'NOTIFICATION_EXPIRED_WAVE3_ENABLED',
+        },
+        'NOTIFICATION_EXPIRED_WAVE3_TRIGGER_DAYS': {
+            'description': 'Через сколько дней после истечения подписки отправлять позднее предложение.',
+            'format': 'Целое число от 2 до 60 (дней).',
+            'example': '5',
+            'warning': 'Подписки старше 30 дней после истечения не рассматриваются.',
+            'dependencies': 'NOTIFICATION_EXPIRED_WAVE3_ENABLED',
+        },
         'GRACE_ACCESS_MODE': {
             'description': (
                 'Режим grace-доступа: временного ограниченного VPN-доступа для истёкшей или упёршейся '
@@ -737,11 +838,40 @@ class BotConfigurationService:
             'example': '1',
             'warning': 'При режиме true должно быть не меньше 1, иначе grace выключится при старте.',
         },
+        'GRACE_ACCESS_RESET_TRAFFIC_ON_START': {
+            'description': (
+                'Обнулять счётчик трафика при выдаче grace, чтобы панель и приложение показывали '
+                '«0 из N ГБ», а не почти исчерпанный лимит «расход + квота».'
+            ),
+            'format': 'Булево значение.',
+            'example': 'false',
+            'warning': (
+                'Действует только на истёкшие подписки с безлимитным трафиком — там счётчик чисто '
+                'информационный. Расход до grace при этом теряется. Упёршиеся в лимит не обнуляются никогда.'
+            ),
+            'dependencies': 'GRACE_ACCESS_TRAFFIC_GB',
+        },
         'GRACE_ACCESS_DURATION_HOURS': {
             'description': 'Сколько действует grace-доступ, если подписку так и не продлили.',
             'format': 'Целое число часов.',
             'example': '72',
             'warning': 'По истечении срока панельное состояние возвращается к исходному из снимка сессии.',
+        },
+        'GRACE_ACCESS_NOTIFY_ADMINS': {
+            'description': 'Сообщать админам в чат уведомлений о каждой выдаче и завершении grace-доступа: кому, почему, до какого срока и чем закончилось.',
+            'format': 'Булево значение.',
+            'example': 'true',
+            'dependencies': 'ADMIN_NOTIFICATIONS_ENABLED, ADMIN_NOTIFICATIONS_RENEWALS_ENABLED',
+        },
+        'GRACE_ACCESS_ALLOWED_SERVICES': {
+            'description': 'Что остаётся доступным во время grace — так, как это увидит человек в сообщении бота и в письме: «Telegram», «Telegram и личный кабинет», «сайт проекта». Сам доступ определяют ноды сквада grace, бот только сообщает.',
+            'format': 'Короткая фраза.',
+            'example': 'Telegram и личный кабинет',
+        },
+        'GRACE_ACCESS_NOTIFY_USER': {
+            'description': 'Сообщать человеку в бота, что подписка закончилась, но на время grace оставлен доступ к тому, что названо в GRACE_ACCESS_ALLOWED_SERVICES, и когда этот доступ закрылся.',
+            'format': 'Булево значение.',
+            'example': 'true',
         },
         'SALES_MODE': {
             'description': (
@@ -828,7 +958,7 @@ class BotConfigurationService:
         'MAIN_MENU_RICH_LOGO_URL': {
             'description': (
                 'Публичный HTTPS-URL картинки-логотипа в шапке rich-меню. '
-                'Пусто — авто-режим: при заданном WEBHOOK_URL и существующем LOGO_FILE '
+                'Пусто — авто-режим (адрес меняется вместе с файлом, ?v= дописывать не нужно): при заданном WEBHOOK_URL и существующем LOGO_FILE '
                 'логотип отдаётся эндпоинтом /cabinet/branding/bot-logo.'
             ),
             'format': 'HTTPS-URL картинки (png/jpg/webp) или пустая строка.',
@@ -986,6 +1116,18 @@ class BotConfigurationService:
             'example': '30:10,60:20,90:30,180:50,360:65',
             'warning': 'Некорректные записи будут проигнорированы. Процент ограничен 0-100.',
         },
+        'PROMO_GROUP_AUTO_ASSIGN_NOTIFY_USER': {
+            'description': (
+                'Сообщать человеку, что ему автоматически назначена промогруппа за траты, и какие скидки '
+                'теперь действуют: в Telegram, а если его нет — на подтверждённую почту.'
+            ),
+            'format': 'Булево значение.',
+            'example': 'true',
+            'warning': (
+                'Массовый пересчёт порогов уведомлений не рассылает. Письмо отдельно выключается в '
+                'редакторе email-шаблонов (тип «Назначена промогруппа»).'
+            ),
+        },
         'AUTO_PURCHASE_AFTER_TOPUP_ENABLED': {
             'description': (
                 'При достаточном балансе автоматически оформляет сохранённую подписку сразу после пополнения.'
@@ -1000,6 +1142,73 @@ class BotConfigurationService:
             'example': '5',
             'warning': 'Слишком низкое значение может вызвать частые напоминания, слишком высокое — ухудшить SLA.',
             'dependencies': 'SUPPORT_TICKET_SLA_ENABLED, SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES',
+        },
+        'REFERRAL_WITHDRAWAL_REMINDER_ENABLED': {
+            'description': (
+                'Повторно напоминать админам о заявках на вывод, которые ждут решения (аналог SLA тикетов).'
+            ),
+            'format': 'Булево значение.',
+            'example': 'true',
+            'warning': 'Напоминания уходят в топик заявок на вывод, а без него — в категорию «партнёрки».',
+            'dependencies': 'REFERRAL_WITHDRAWAL_REMINDER_MINUTES, REFERRAL_WITHDRAWAL_REMINDER_COOLDOWN_MINUTES',
+        },
+        'REFERRAL_WITHDRAWAL_REMINDER_MINUTES': {
+            'description': 'Сколько минут заявка на вывод может ждать решения до первого напоминания.',
+            'format': 'Целое число от 1 до 10080.',
+            'example': '120',
+            'warning': 'Слишком низкое значение — частые напоминания по каждой заявке.',
+            'dependencies': 'REFERRAL_WITHDRAWAL_REMINDER_ENABLED, REFERRAL_WITHDRAWAL_REMINDER_COOLDOWN_MINUTES',
+        },
+        'REFERRAL_WITHDRAWAL_REMINDER_COOLDOWN_MINUTES': {
+            'description': 'Минимальный интервал между повторными напоминаниями по одной заявке на вывод.',
+            'format': 'Целое число от 1 до 10080 (минуты).',
+            'example': '180',
+            'warning': 'Фактический шаг округляется вверх до интервала проверки заявок.',
+            'dependencies': (
+                'REFERRAL_WITHDRAWAL_REMINDER_ENABLED, REFERRAL_WITHDRAWAL_REMINDER_CHECK_INTERVAL_SECONDS'
+            ),
+        },
+        'REFERRAL_WITHDRAWAL_REMINDER_CHECK_INTERVAL_SECONDS': {
+            'description': 'Как часто бот проверяет заявки на вывод без решения.',
+            'format': 'Целое число от 30 до 3600 (секунды).',
+            'example': '300',
+            'warning': 'Применяется на следующем круге проверки, перезапуск не нужен.',
+            'dependencies': 'REFERRAL_WITHDRAWAL_REMINDER_ENABLED',
+        },
+        'USER_REMINDERS_CHECK_INTERVAL_MINUTES': {
+            'description': 'Как часто бот отправляет пользователям напоминания в Telegram.',
+            'format': 'Целое число от 1 до 1440 (минуты).',
+            'example': '15',
+            'warning': 'Применяется на следующем проходе, перезапуск не нужен.',
+            'dependencies': 'USER_REMINDERS_MAX_PER_PASS',
+        },
+        'USER_REMINDERS_QUIET_HOURS_START': {
+            'description': 'С какого часа (по TIMEZONE) бот перестаёт отправлять напоминания.',
+            'format': 'Целое число от 0 до 23.',
+            'example': '21',
+            'warning': 'Одинаковые начало и конец — тихих часов нет.',
+            'dependencies': 'USER_REMINDERS_QUIET_HOURS_END',
+        },
+        'USER_REMINDERS_QUIET_HOURS_END': {
+            'description': 'До какого часа (по TIMEZONE) бот не отправляет напоминания.',
+            'format': 'Целое число от 0 до 23.',
+            'example': '10',
+            'warning': 'Одинаковые начало и конец — тихих часов нет.',
+            'dependencies': 'USER_REMINDERS_QUIET_HOURS_START',
+        },
+        'USER_REMINDERS_DAILY_LIMIT_ENABLED': {
+            'description': 'Не больше одного напоминания в сутки на человека по всем напоминаниям вместе.',
+            'format': 'Булево значение.',
+            'example': 'true',
+            'warning': 'Выключение позволит нескольким напоминаниям прийти в один день.',
+            'dependencies': 'USER_REMINDERS_CHECK_INTERVAL_MINUTES',
+        },
+        'USER_REMINDERS_MAX_PER_PASS': {
+            'description': 'Сколько сообщений бот отправляет за один проход; остальное — следующим.',
+            'format': 'Целое число от 1 до 10000.',
+            'example': '500',
+            'warning': 'Большое значение растягивает проход: темп 25 сообщений в секунду.',
+            'dependencies': 'USER_REMINDERS_CHECK_INTERVAL_MINUTES',
         },
         'MAINTENANCE_MODE': {
             'description': 'Переводит бота в режим технического обслуживания и скрывает действия для пользователей.',
@@ -1048,13 +1257,27 @@ class BotConfigurationService:
             'dependencies': 'REMNAWAVE_AUTO_SYNC_TIMES',
         },
         'REMNAWAVE_AUTO_SYNC_TIMES': {
-            'description': ('Список времени в формате HH:MM, когда запускается автосинхронизация в течение суток.'),
+            'description': (
+                'Список времени в формате HH:MM в часовом поясе бота (TIMEZONE), '
+                'когда запускается автосинхронизация в течение суток.'
+            ),
             'format': 'Перечислите время через запятую или с новой строки (например, 03:00, 15:00).',
             'example': '03:00, 15:00',
             'warning': (
                 'Минимальный интервал между запусками не ограничен, но слишком частые синхронизации нагружают панель.'
             ),
             'dependencies': 'REMNAWAVE_AUTO_SYNC_ENABLED',
+        },
+        'REMNAWAVE_API_REQUESTS_PER_MINUTE': {
+            'description': (
+                'Потолок запросов бота к панели RemnaWave в минуту. Нужен, если перед панелью '
+                'стоит прокси с лимитом частоты (например, rate_limit в Caddy) и адрес бота из него '
+                'не исключён: тогда массовая синхронизация упирается в лимит и ловит ошибки 429.'
+            ),
+            'format': 'Целое число. 0 — без ограничения.',
+            'example': '90 при лимите прокси 100 запросов в минуту.',
+            'warning': 'С потолком синхронизация тысяч подписок идёт часами; лучше исключить адрес бота в прокси.',
+            'dependencies': 'REMNAWAVE_API_URL',
         },
         'REMNAWAVE_USER_DESCRIPTION_TEMPLATE': {
             'description': (
@@ -1186,10 +1409,10 @@ class BotConfigurationService:
             'dependencies': 'TRAFFIC_DAILY_CHECK_TIME, TRAFFIC_DAILY_THRESHOLD_GB',
         },
         'TRAFFIC_DAILY_CHECK_TIME': {
-            'description': 'Время суточной проверки трафика в формате HH:MM (UTC).',
+            'description': 'Время суточной проверки трафика в формате HH:MM в часовом поясе бота (TIMEZONE).',
             'format': 'Строка времени HH:MM.',
             'example': '00:00',
-            'warning': 'Время указывается в UTC.',
+            'warning': 'Время указывается в часовом поясе бота (TIMEZONE), а не в UTC.',
             'dependencies': 'TRAFFIC_DAILY_CHECK_ENABLED',
         },
         'TRAFFIC_DAILY_THRESHOLD_GB': {
@@ -1301,7 +1524,10 @@ class BotConfigurationService:
             ),
             'format': 'Булево значение: выберите "Включить" или "Выключить".',
             'example': 'Выключено по умолчанию.',
-            'warning': 'При включении трафик будет обнуляться при каждом продлении подписки.',
+            'warning': (
+                'При включении трафик будет обнуляться при каждом продлении подписки, '
+                'включая суточное списание — то есть раз в сутки.'
+            ),
         },
         'TELEGRAM_WIDGET_SIZE': {
             'description': 'Размер кнопки виджета Telegram на странице авторизации.',
@@ -2076,12 +2302,27 @@ class BotConfigurationService:
         value: Any,
         *,
         force: bool = False,
+        commit: bool = True,
     ) -> None:
+        """Сохранить настройку в БД и применить к живому процессу.
+
+        Коммит по умолчанию делает сама запись. Раньше запись только флашила, а
+        коммит оставался на вызывающем — и три ручки реферальной программы плюс
+        выключатель писем его не делали. Значение применялось к процессу
+        (админка показывала новое), а в базу не доезжало: сессия кабинета
+        закрывается без коммита. После перезапуска возвращалось старое, сколько
+        ни переключай.
+
+        ``commit=False`` — для пакетной записи, где несколько ключей должны
+        лечь одной транзакцией; такой вызывающий обязан коммитить сам.
+        """
         if cls.is_read_only(key) and not force:
             raise ReadOnlySettingError(f'Setting {key} is read-only')
 
         raw_value = cls.serialize_value(key, value)
         await upsert_system_setting(db, key, raw_value)
+        if commit:
+            await db.commit()
         if cls._is_env_override(key):
             logger.info('Настройка сохранена в БД, но не применена: значение задаётся через окружение', key=key)
             cls._overrides_raw.pop(key, None)
@@ -2104,11 +2345,19 @@ class BotConfigurationService:
         key: str,
         *,
         force: bool = False,
+        commit: bool = True,
     ) -> None:
+        """Убрать настройку из БД и вернуть значение по умолчанию.
+
+        Коммит — как у ``set_value``: по умолчанию свой, ``commit=False`` для
+        пакетной записи.
+        """
         if cls.is_read_only(key) and not force:
             raise ReadOnlySettingError(f'Setting {key} is read-only')
 
         await delete_system_setting(db, key)
+        if commit:
+            await db.commit()
         cls._overrides_raw.pop(key, None)
         if cls._is_env_override(key):
             logger.info('Настройка сброшена в БД, используется значение из окружения', key=key)
@@ -2157,13 +2406,6 @@ class BotConfigurationService:
                     )
                 except Exception as error:
                     logger.error('Не удалось обновить сервис автосинхронизации RemnaWave', error=error)
-            elif key == 'SUPPORT_SYSTEM_MODE':
-                try:
-                    from app.services.support_settings_service import SupportSettingsService
-
-                    SupportSettingsService.set_system_mode(str(value))
-                except Exception as error:
-                    logger.error('Не удалось синхронизировать SupportSettingsService', error=error)
             elif key in {
                 'BACKUP_AUTO_ENABLED',
                 'BACKUP_INTERVAL_HOURS',
