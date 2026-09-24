@@ -896,18 +896,6 @@ async def create_landing_purchase(
             detail=f'Amount exceeds the maximum ({settings.format_price(max_amount)}) for this payment method',
         )
 
-    # A non-gift landing purchase would create or revive the recipient after
-    # payment. Enforce the current policy before creating any payment record;
-    # fulfillment repeats the check immediately before mutating User.
-    if not body.is_gift:
-        _, decision = await evaluate_guest_purchase_registration(
-            db,
-            channel=RegistrationChannel.LANDING_PURCHASE,
-            contact_type=body.contact_type,
-            contact_value=body.contact_value,
-        )
-        raise_for_registration_decision(decision)
-
     # Create purchase record (no commit yet — wait for payment creation)
     purchase = await create_purchase(
         db,
