@@ -1,6 +1,8 @@
 # Automatically generated module exports
 
 from .autopay import (
+    handle_antilopay_recurring_cancel,
+    handle_antilopay_recurring_menu,
     handle_autopay_menu,
     handle_confirm_unlink,
     handle_saved_cards_list,
@@ -186,6 +188,8 @@ __all__ = [
     'handle_add_country_to_subscription',
     'handle_add_traffic',
     'handle_all_devices_reset_from_management',
+    'handle_antilopay_recurring_cancel',
+    'handle_antilopay_recurring_menu',
     'handle_app_selection',
     'handle_autopay_menu',
     'handle_change_devices',

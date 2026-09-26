@@ -1,3 +1,4 @@
+import asyncio
 import html
 from collections.abc import Callable
 from datetime import UTC, datetime

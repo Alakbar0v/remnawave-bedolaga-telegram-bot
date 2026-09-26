@@ -81,6 +81,9 @@ async def handle_autopay_menu(callback: types.CallbackQuery, db_user: User, db: 
                     )
                 ]
             )
+        antilopay_button = await _antilopay_menu_button(db, subscription, texts)
+        if antilopay_button is not None:
+            daily_keyboard_rows.append([antilopay_button])
         back_cb = f'sm:{sub_id}' if sub_id and settings.is_multi_tariff_enabled() else 'menu_subscription'
         daily_keyboard_rows.append([types.InlineKeyboardButton(text=texts.BACK, callback_data=back_cb)])
 
@@ -131,6 +134,10 @@ async def handle_autopay_menu(callback: types.CallbackQuery, db_user: User, db: 
                 )
             ],
         )
+
+    antilopay_button = await _antilopay_menu_button(db, subscription, texts)
+    if antilopay_button is not None:
+        keyboard.inline_keyboard.insert(-1, [antilopay_button])
 
     await callback.message.edit_text(
         text,
@@ -555,6 +562,107 @@ async def handle_sbp_recurring_cancel(
     # успешной отмены юзер не получил второй алерт «недоступно».
     if settings.is_platega_recurrent_enabled():
         await handle_sbp_recurring_menu(callback, db_user, db, state)
+
+
+async def _antilopay_menu_button(db: AsyncSession, subscription: Any, texts) -> types.InlineKeyboardButton | None:
+    """Кнопка входа в СБП-автопродление Antilopay — только если у подписки есть живая привязка.
+
+    НЕ гейтится ANTILOPAY_SBP_ENABLED намеренно: отмена — операция безопасности, при
+    выключенной фиче живые привязки продолжают списывать, путь остановки должен остаться.
+    """
+    from app.database.crud.antilopay_subscription import get_active_antilopay_subscription_by_subscription
+
+    record = await get_active_antilopay_subscription_by_subscription(db, subscription.id)
+    if record is None:
+        return None
+    return types.InlineKeyboardButton(
+        text=texts.t('ANTILOPAY_RECURRING_MENU_BUTTON', '⚡ СБП-автопродление (Antilopay)'),
+        callback_data='antilopay_recurring_menu',
+    )
+
+
+async def handle_antilopay_recurring_menu(
+    callback: types.CallbackQuery, db_user: User, db: AsyncSession, state: FSMContext = None
+):
+    """СБП-автопродление Antilopay: статус, сумма и кнопка отмены."""
+    texts = get_texts(db_user.language)
+
+    subscription, sub_id = await _resolve_subscription(callback, db_user, db, state)
+    if not subscription:
+        await callback.answer(
+            texts.t('SUBSCRIPTION_ACTIVE_REQUIRED', '⚠️ У вас нет активной подписки!'),
+            show_alert=True,
+        )
+        return
+
+    from app.database.crud.antilopay_subscription import get_active_antilopay_subscription_by_subscription
+
+    record = await get_active_antilopay_subscription_by_subscription(db, subscription.id)
+
+    text = texts.t(
+        'SBP_RECURRING_MENU_TEXT',
+        '⚡ <b>Автопродление через СБП</b>\n\n📊 <b>Статус:</b> {status}',
+    ).format(status=_platega_sbp_status_text(record, texts))
+
+    rows: list[list[types.InlineKeyboardButton]] = []
+    if record is not None:
+        text += texts.t(
+            'ANTILOPAY_RECURRING_AMOUNT_LINE',
+            '\n💰 <b>Сумма списания:</b> {amount}',
+        ).format(amount=settings.format_price(record.amount_kopeks))
+        rows.append(
+            [
+                types.InlineKeyboardButton(
+                    text=texts.t('SBP_RECURRING_CANCEL_BUTTON', '❌ Отменить автооплату'),
+                    callback_data='antilopay_recurring_cancel',
+                )
+            ]
+        )
+    rows.append([types.InlineKeyboardButton(text=texts.BACK, callback_data='subscription_autopay')])
+
+    await callback.message.edit_text(
+        text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=rows), parse_mode='HTML'
+    )
+    await callback.answer()
+
+
+async def handle_antilopay_recurring_cancel(
+    callback: types.CallbackQuery, db_user: User, db: AsyncSession, state: FSMContext = None
+):
+    """Отменить СБП-автопродление Antilopay (удалённо и локально) и вернуться в меню автоплатежа.
+
+    НЕ гейтится флагом СБП: отмена — операция безопасности. Доступ, уже выданный
+    (в т.ч. пробный период), остаётся до конца оплаченного срока.
+    """
+    texts = get_texts(db_user.language)
+
+    subscription, sub_id = await _resolve_subscription(callback, db_user, db, state)
+    if not subscription:
+        await callback.answer(
+            texts.t('SUBSCRIPTION_ACTIVE_REQUIRED', '⚠️ У вас нет активной подписки!'),
+            show_alert=True,
+        )
+        return
+
+    from app.database.crud.antilopay_subscription import get_active_antilopay_subscription_by_subscription
+    from app.services.payment.antilopay import _AntilopayRecurrentAgent
+
+    record = await get_active_antilopay_subscription_by_subscription(db, subscription.id)
+    if record is not None:
+        try:
+            await _AntilopayRecurrentAgent().cancel_antilopay_subscription_record(db, record)
+        except Exception as error:
+            logger.warning(
+                'Не удалось отменить СБП-автопродление Antilopay', error=str(error), subscription_id=subscription.id
+            )
+            await callback.answer(
+                texts.t('ANTILOPAY_RECURRING_CANCEL_ERROR', '❌ Не удалось отменить автопродление. Попробуйте позже.'),
+                show_alert=True,
+            )
+            return
+
+    await callback.answer(texts.t('SBP_RECURRING_CANCELLED', '✅ Автопродление через СБП отменено'))
+    await handle_autopay_menu(callback, db_user, db, state)
 
 
 async def handle_saved_cards_list(callback: types.CallbackQuery, db_user: User, db: AsyncSession):

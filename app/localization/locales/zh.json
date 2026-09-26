@@ -2297,5 +2297,13 @@
   "GRACE_ACCESS_ENDED": "⌛ <b>临时访问已结束</b>\n\n订阅{tariff_label}未续订，临时访问已关闭。此前保留的部分现已不可用：{allowed}。请续订以恢复 VPN。",
   "LAVA_SBP_PAY_BUTTON": "支付",
   "LAVA_SBP_PURCHASE_BUTTON": "SBP",
-  "TRIAL_SBP_ENABLE_SUCCESS": "🎁 <b>SBP试用期</b>\n\n请点击下方按钮支付 —— 支付后立即开通。"
+  "TRIAL_SBP_ENABLE_SUCCESS": "🎁 <b>SBP试用期</b>\n\n请点击下方按钮绑定 SBP —— 立即开通访问，试用期结束后将自动扣除全额费用。",
+  "TRIAL_SBP_ENABLE_ERROR": "❌ 无法绑定 SBP，请重试。",
+  "TRIAL_SBP_NOTIFY_STARTED": "🎁 SBP 已绑定，试用期已激活。",
+  "ANTILOPAY_RECURRING_NOTIFY_CONFIRMED": "✅ 订阅已通过 SBP 自动扣款续期。",
+  "ANTILOPAY_RECURRING_NOTIFY_FAILED": "⚠️ SBP 自动续费扣款失败。",
+  "ANTILOPAY_RECURRING_NOTIFY_CANCELLED": "ℹ️ 由于套餐价格变动，SBP 自动续费已关闭，请重新开启。",
+  "ANTILOPAY_RECURRING_MENU_BUTTON": "⚡ SBP 自动续费 (Antilopay)",
+  "ANTILOPAY_RECURRING_AMOUNT_LINE": "\n💰 <b>扣款金额：</b>{amount}",
+  "ANTILOPAY_RECURRING_CANCEL_ERROR": "❌ 无法取消自动续费，请稍后再试。"
 }

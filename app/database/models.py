@@ -803,6 +803,68 @@ class LavaSubscription(Base):
         return self.amount_kopeks / 100
 
 
+class AntilopaySubscription(Base):
+    """СБП-рекуррент Antilopay, привязанный к подписке бота (платный триал).
+
+    У Antilopay нет продуктов, как у Lava: сумма и периодичность передаются в
+    самом ``payment/create`` (``recurrent.category=SUBSCRIPTION`` — только СБП),
+    поэтому ``amount_kopeks``/``charge_days`` берутся из тарифа на момент оформления.
+    """
+
+    __tablename__ = 'antilopay_subscriptions'
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    subscription_id = Column(Integer, ForeignKey('subscriptions.id', ondelete='CASCADE'), nullable=False, index=True)
+    tariff_id = Column(Integer, ForeignKey('tariffs.id'), nullable=True)
+
+    # orderId инициирующего платежа привязки (совпадает с AntilopayPayment.order_id)
+    order_id = Column(String(64), unique=True, nullable=False, index=True)
+    # payment_id инициирующего платежа в Antilopay — им можно отменить рекуррент до прихода recurrent_id
+    antilopay_payment_id = Column(String(128), nullable=True)
+    recurrent_id = Column(String(128), unique=True, nullable=True, index=True)
+
+    charge_days = Column(Integer, nullable=False)  # шаг продления за одно списание
+    amount_kopeks = Column(Integer, nullable=False)
+    currency = Column(String(10), nullable=False, default='RUB')
+
+    status = Column(String(20), nullable=False, default='PENDING')  # PENDING/ACTIVE/PAST_DUE/CANCELLED
+    redirect_url = Column(Text, nullable=True)
+    next_charge_at = Column(AwareDateTime(), nullable=True)
+    last_charge_at = Column(AwareDateTime(), nullable=True)
+    last_charge_external_id = Column(String(128), nullable=True)  # идемпотентность по payment_id списания
+    # payment_id последнего неудачного списания: ретраи callback не должны множить счётчик и уведомления
+    last_failed_external_id = Column(String(128), nullable=True)
+    charges_success = Column(Integer, nullable=False, default=0)
+    charges_failed = Column(Integer, nullable=False, default=0)
+
+    # Длительность пробного периода (delay в днях); >0 = привязка под платный триал
+    free_days = Column(Integer, nullable=False, default=0)
+    # Идемпотентность выдачи триального доступа (Antilopay ретраит callback до часа)
+    trial_activated_at = Column(AwareDateTime(), nullable=True)
+
+    created_at = Column(AwareDateTime(), default=func.now())
+    updated_at = Column(AwareDateTime(), default=func.now(), onupdate=func.now())
+
+    user = relationship('User', backref='antilopay_subscriptions')
+    subscription = relationship('Subscription', backref='antilopay_subscriptions')
+
+    __table_args__ = (
+        Index('ix_antilopay_subscriptions_user_active', 'user_id', 'status'),
+        Index(
+            'uq_antilopay_subscriptions_alive',
+            'subscription_id',
+            unique=True,
+            postgresql_where=text("status IN ('PENDING', 'ACTIVE', 'PAST_DUE')"),
+            sqlite_where=text("status IN ('PENDING', 'ACTIVE', 'PAST_DUE')"),
+        ),
+    )
+
+    @property
+    def amount_rubles(self) -> float:
+        return self.amount_kopeks / 100
+
+
 class CloudPaymentsPayment(Base):
     __tablename__ = 'cloudpayments_payments'
 

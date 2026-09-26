@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 from app.database.models import (
+    AntilopaySubscription,
     LavaSubscription,
     PlategaSubscription,
     PromoGroup,
@@ -43,6 +44,7 @@ TABLES = (
     tariff_promo_groups,
     PlategaSubscription.__table__,
     LavaSubscription.__table__,
+    AntilopaySubscription.__table__,
 )
 
 BASE_PRICE = 30000  # 300 ₽ за 30 дней
@@ -113,6 +115,40 @@ def _lava(subscription, user, amount: int) -> LavaSubscription:
         status='ACTIVE',
         lava_subscription_id='lv-1',
     )
+
+
+def _antilopay(subscription, user, amount: int) -> AntilopaySubscription:
+    return AntilopaySubscription(
+        user_id=user.id,
+        subscription_id=subscription.id,
+        tariff_id=subscription.tariff_id,
+        order_id='alp-x',
+        antilopay_payment_id='APAY-1',
+        recurrent_id='rec-1',
+        charge_days=30,
+        amount_kopeks=amount,
+        status='ACTIVE',
+    )
+
+
+async def test_stale_antilopay_binding_is_cancelled(monkeypatch):
+    """Подписка подорожала — СБП-привязка Antilopay тоже гасится."""
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, _, subscription = await _seed(db, device_limit=3)
+        db.add(_antilopay(subscription, user, BASE_PRICE))
+        await db.commit()
+
+        cancelled: list[str] = []
+        import app.services.payment.antilopay as antilopay_module
+
+        async def cancel_antilopay(db_, sub_id, **kwargs):
+            cancelled.append('antilopay')
+
+        monkeypatch.setattr(antilopay_module, 'cancel_antilopay_recurring_for_subscription_safe', cancel_antilopay)
+
+        await sync_recurrent_bindings_after_price_change(db, subscription.id)
+
+        assert cancelled == ['antilopay']
 
 
 async def test_true_amount_includes_extra_devices(monkeypatch):

@@ -2297,5 +2297,13 @@
   "GRACE_ACCESS_ENDED": "⌛ <b>دسترسی موقت تمام شد</b>\n\nاشتراک{tariff_label} تمدید نشد و دسترسی موقت بسته شد. آنچه باقی مانده بود هم دیگر کار نمی‌کند: {allowed}. برای بازگشت VPN اشتراک را تمدید کنید.",
   "LAVA_SBP_PAY_BUTTON": "پرداخت",
   "LAVA_SBP_PURCHASE_BUTTON": "SBP",
-  "TRIAL_SBP_ENABLE_SUCCESS": "🎁 <b>دوره آزمایشی از طریق SBP</b>\n\nبا دکمه زیر پرداخت کنید — دسترسی بلافاصله پس از پرداخت باز می‌شود."
+  "TRIAL_SBP_ENABLE_SUCCESS": "🎁 <b>دوره آزمایشی از طریق SBP</b>\n\nبا دکمه زیر SBP را متصل کنید — دسترسی بلافاصله باز می‌شود و مبلغ کامل پس از دوره آزمایشی به‌صورت خودکار کسر می‌شود.",
+  "TRIAL_SBP_ENABLE_ERROR": "❌ اتصال SBP انجام نشد. دوباره تلاش کنید.",
+  "TRIAL_SBP_NOTIFY_STARTED": "🎁 SBP متصل شد و دوره آزمایشی فعال شد.",
+  "ANTILOPAY_RECURRING_NOTIFY_CONFIRMED": "✅ اشتراک با کسر خودکار SBP تمدید شد.",
+  "ANTILOPAY_RECURRING_NOTIFY_FAILED": "⚠️ کسر خودکار تمدید از طریق SBP انجام نشد.",
+  "ANTILOPAY_RECURRING_NOTIFY_CANCELLED": "ℹ️ تمدید خودکار از طریق SBP به دلیل تغییر قیمت تعرفه غیرفعال شد. لطفاً دوباره فعال کنید.",
+  "ANTILOPAY_RECURRING_MENU_BUTTON": "⚡ تمدید خودکار SBP (Antilopay)",
+  "ANTILOPAY_RECURRING_AMOUNT_LINE": "\n💰 <b>مبلغ برداشت:</b> {amount}",
+  "ANTILOPAY_RECURRING_CANCEL_ERROR": "❌ لغو تمدید خودکار ممکن نشد. لطفاً بعداً دوباره تلاش کنید."
 }

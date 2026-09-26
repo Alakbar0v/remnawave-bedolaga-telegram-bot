@@ -1660,6 +1660,11 @@ async def cancel_lava_recurring_for_subscription_safe(
             subscription_id=subscription_id,
         )
 
+    # Все пути удаления подписки уже вызывают эту точку — заодно гасим СБП-рекуррент Antilopay.
+    from app.services.payment.antilopay import cancel_antilopay_recurring_for_subscription_safe
+
+    await cancel_antilopay_recurring_for_subscription_safe(db, subscription_id, commit=commit)
+
 
 async def get_lava_recurring_status(db: AsyncSession, subscription_id: int) -> dict[str, Any] | None:
     """Состояние активной привязки Lava для UI (бот/кабинет) либо None."""

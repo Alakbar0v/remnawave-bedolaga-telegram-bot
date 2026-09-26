@@ -65,6 +65,10 @@ async def test_autopay_menu_daily_tariff_still_shows_sbp_entry(monkeypatch):
     subscription = SimpleNamespace(id=10, tariff=SimpleNamespace(is_daily=True))
 
     monkeypatch.setattr(autopay_mod, '_resolve_subscription', AsyncMock(return_value=(subscription, 10)))
+    monkeypatch.setattr(
+        'app.database.crud.antilopay_subscription.get_active_antilopay_subscription_by_subscription',
+        AsyncMock(return_value=None),
+    )
 
     await autopay_mod.handle_autopay_menu(cb, user, db)
 
@@ -81,6 +85,10 @@ async def test_autopay_menu_daily_tariff_gate_off_hides_sbp_entry(monkeypatch):
     subscription = SimpleNamespace(id=10, tariff=SimpleNamespace(is_daily=True))
 
     monkeypatch.setattr(autopay_mod, '_resolve_subscription', AsyncMock(return_value=(subscription, 10)))
+    monkeypatch.setattr(
+        'app.database.crud.antilopay_subscription.get_active_antilopay_subscription_by_subscription',
+        AsyncMock(return_value=None),
+    )
 
     await autopay_mod.handle_autopay_menu(cb, user, db)
 

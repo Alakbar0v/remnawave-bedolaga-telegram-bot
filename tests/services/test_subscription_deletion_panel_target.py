@@ -22,6 +22,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.database.models import (
+    AntilopaySubscription,
     DiscountOffer,
     LavaSubscription,
     PlategaSubscription,
@@ -48,6 +49,7 @@ TABLES = (
     TrafficPurchase.__table__,
     PlategaSubscription.__table__,
     LavaSubscription.__table__,
+    AntilopaySubscription.__table__,
     SentNotification.__table__,
     SubscriptionEvent.__table__,
     SubscriptionServer.__table__,

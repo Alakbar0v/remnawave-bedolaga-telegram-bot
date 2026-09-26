@@ -127,6 +127,8 @@ from app.utils.subscription_utils import (
 from app.utils.timezone import format_local_datetime
 
 from .autopay import (
+    handle_antilopay_recurring_cancel,
+    handle_antilopay_recurring_menu,
     handle_autopay_menu,
     handle_sbp_recurring_cancel,
     handle_sbp_recurring_enable,
@@ -914,15 +916,13 @@ async def show_trial_confirm(
     Зеркало confirm-экрана обычной покупки тарифа
     (``tariff_purchase.get_tariff_confirm_keyboard``) — выбор тарифа не
     запускает оплату сам по себе, для этого нужно отдельное нажатие на
-    способ оплаты: '💳 Карта' (рекуррент, freeDays, сегодня через Lava) либо,
-    если настроена разовая цена активации, '📱 СБП' (без автопродления, см.
-    ``start_lava_trial_sbp``).
+    способ оплаты: '💳 Карта' (рекуррент, freeDays, Lava) и '📱 СБП' (СБП-рекуррент
+    Antilopay с отложенным первым списанием, см. ``start_antilopay_trial_sbp``).
     """
     texts = get_texts(db_user.language)
     tariff_id = int(callback.data.split(':')[1])
 
     from app.database.crud.tariff import get_tariff_by_id
-    from app.services.trial_activation_service import get_trial_activation_charge_amount
 
     tariff = await get_tariff_by_id(db, tariff_id)
     if not tariff or not tariff.is_active:
@@ -949,7 +949,7 @@ async def show_trial_confirm(
             )
         ],
     ]
-    if settings.is_lava_sbp_enabled() and get_trial_activation_charge_amount() > 0:
+    if settings.is_antilopay_sbp_enabled():
         buttons.append(
             [
                 types.InlineKeyboardButton(
@@ -1029,12 +1029,12 @@ async def start_trial_sbp(
     db_user: User,
     db: AsyncSession,
 ):
-    """Разовая оплата триала через СБП (сегодня — Lava) — без привязки карты и автопродления.
+    """Платный триал через СБП-рекуррент Antilopay.
 
-    В отличие от ``start_trial_card`` (freeDays-продукт, рекуррент) — оплата
-    полная и разовая, доступ на весь триальный период выдаётся сразу после
-    вебхука об оплате (см. ``start_lava_trial_sbp`` /
-    ``LavaPaymentMixin._finalize_lava_trial_sbp_purchase``).
+    Аналог ``start_trial_card`` для СБП: привязка подписки, доступ на
+    ``TRIAL_DURATION_DAYS`` выдаётся по callback привязки, полная цена тарифа
+    списывается автоматически после пробного периода (см.
+    ``start_antilopay_trial_sbp`` / ``AntilopayPaymentMixin._activate_antilopay_trial``).
     """
     texts = get_texts(db_user.language)
     tariff_id = int(callback.data.split(':')[1])
@@ -1046,16 +1046,16 @@ async def start_trial_sbp(
         await callback.answer(texts.t('TARIFF_PURCHASE_UNAVAILABLE', 'Тариф недоступен'), show_alert=True)
         return
 
-    from app.services.payment.lava import start_lava_trial_sbp
+    from app.services.payment.antilopay import start_antilopay_trial_sbp
 
     try:
-        result = await start_lava_trial_sbp(db, user=db_user, tariff=tariff)
+        result = await start_antilopay_trial_sbp(db, user=db_user, tariff=tariff)
     except ValueError as error:
         await callback.answer(str(error), show_alert=True)
         return
     except Exception:
         await callback.answer(
-            texts.t('LAVA_RECURRING_ENABLE_ERROR', '❌ Не удалось оплатить картой. Попробуйте еще раз.'),
+            texts.t('TRIAL_SBP_ENABLE_ERROR', '❌ Не удалось привязать СБП. Попробуйте еще раз.'),
             show_alert=True,
         )
         return
@@ -1063,7 +1063,8 @@ async def start_trial_sbp(
     payment_url = result.get('payment_url')
     text = texts.t(
         'TRIAL_SBP_ENABLE_SUCCESS',
-        '🎁 <b>Пробный период по СБП</b>\n\nОплатите по кнопке ниже — доступ откроется сразу после оплаты.',
+        '🎁 <b>Пробный период по СБП</b>\n\nПривяжите СБП по кнопке ниже — доступ откроется сразу, '
+        'полная сумма спишется автоматически после пробного периода.',
     )
 
     buttons = []
@@ -4689,6 +4690,10 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(handle_sbp_recurring_enable, F.data == 'sbp_recurring_enable')
 
     dp.callback_query.register(handle_sbp_recurring_cancel, F.data == 'sbp_recurring_cancel')
+
+    dp.callback_query.register(handle_antilopay_recurring_menu, F.data == 'antilopay_recurring_menu')
+
+    dp.callback_query.register(handle_antilopay_recurring_cancel, F.data == 'antilopay_recurring_cancel')
 
     dp.callback_query.register(handle_subscription_config_back, F.data == 'subscription_config_back')
 

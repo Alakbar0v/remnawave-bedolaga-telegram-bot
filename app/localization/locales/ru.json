@@ -2297,5 +2297,13 @@
   "GRACE_ACCESS_ENDED": "⌛ <b>Временный доступ закончился</b>\n\nПодписка{tariff_label} так и не продлена, временный доступ закрыт. Больше не работает и то, что оставалось: {allowed}. Продлите подписку, чтобы вернуть VPN.",
   "LAVA_SBP_PAY_BUTTON": "Оплатить",
   "LAVA_SBP_PURCHASE_BUTTON": "СБП",
-  "TRIAL_SBP_ENABLE_SUCCESS": "🎁 <b>Пробный период по СБП</b>\n\nОплатите по кнопке ниже — доступ откроется сразу после оплаты."
+  "TRIAL_SBP_ENABLE_SUCCESS": "🎁 <b>Пробный период по СБП</b>\n\nПривяжите СБП по кнопке ниже — доступ откроется сразу, полная сумма спишется автоматически после пробного периода.",
+  "TRIAL_SBP_ENABLE_ERROR": "❌ Не удалось привязать СБП. Попробуйте еще раз.",
+  "TRIAL_SBP_NOTIFY_STARTED": "🎁 СБП привязан, пробный период активирован.",
+  "ANTILOPAY_RECURRING_NOTIFY_CONFIRMED": "✅ Подписка продлена автосписанием по СБП.",
+  "ANTILOPAY_RECURRING_NOTIFY_FAILED": "⚠️ Не удалось списать оплату по автопродлению через СБП.",
+  "ANTILOPAY_RECURRING_NOTIFY_CANCELLED": "ℹ️ Автопродление через СБП отключено: цена тарифа изменилась. Подключите его заново.",
+  "ANTILOPAY_RECURRING_MENU_BUTTON": "⚡ СБП-автопродление (Antilopay)",
+  "ANTILOPAY_RECURRING_AMOUNT_LINE": "\n💰 <b>Сумма списания:</b> {amount}",
+  "ANTILOPAY_RECURRING_CANCEL_ERROR": "❌ Не удалось отменить автопродление. Попробуйте позже."
 }

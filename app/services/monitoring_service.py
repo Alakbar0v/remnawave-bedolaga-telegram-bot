@@ -465,6 +465,7 @@ class MonitoringService:
                 # Реконсилиация рекуррентных подписок Lava: та же страховка на
                 # случай потерянных вебхуков / недошедших отмен.
                 await self._reconcile_lava_subscriptions(db)
+                await self._reconcile_antilopay_subscriptions(db)
                 await self._check_expired_subscriptions(db)
                 await self._check_expiring_subscriptions(db)
                 await self._check_trial_expiring_soon(db)
@@ -3183,6 +3184,15 @@ class MonitoringService:
                     )
         except Exception as e:
             logger.warning('Ошибка реконсиляции Lava-подписок', error=e)
+
+    async def _reconcile_antilopay_subscriptions(self, db: AsyncSession):
+        """Safety net для СБП-рекуррентов Antilopay (см. antilopay_reconcile)."""
+        try:
+            from app.services.antilopay_reconcile import reconcile_antilopay_subscriptions
+
+            await reconcile_antilopay_subscriptions(db, bot=self.bot)
+        except Exception as e:
+            logger.warning('Ошибка реконсиляции Antilopay-подписок', error=e)
 
     async def _check_ticket_sla(self, db: AsyncSession):
         try:
