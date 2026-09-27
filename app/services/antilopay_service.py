@@ -51,6 +51,36 @@ class AntilopayService:
     def project_id(self) -> str:
         return settings.ANTILOPAY_PROJECT_ID or ''
 
+    @staticmethod
+    async def _read_json(response: aiohttp.ClientResponse) -> dict[str, Any]:
+        """Разбирает ответ API; не-JSON (пустое тело, HTML-страница) — понятная ``AntilopayAPIError``.
+
+        Без этого ``json.JSONDecodeError`` (подкласс ``ValueError``) уходил наверх и показывался
+        пользователю как «Expecting value: line 1 column 1».
+        """
+        raw = await response.text()
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            # TEST-LOG: временно, удалить вместе с antilopay_test_log
+            test_log(
+                'api_response NON_JSON',
+                http_status=response.status,
+                url=str(response.url),
+                content_type=response.headers.get('Content-Type'),
+                body_preview=raw[:500],
+            )
+            logger.error(
+                'Antilopay: ответ не является JSON',
+                status_code=response.status,
+                url=str(response.url),
+                body_preview=raw[:200],
+            )
+            raise AntilopayAPIError(response.status, f'ответ не JSON (HTTP {response.status})') from None
+        if not isinstance(data, dict):
+            raise AntilopayAPIError(response.status, 'неожиданный формат ответа')
+        return data
+
     async def _get_session(self) -> aiohttp.ClientSession:
         """Возвращает переиспользуемую HTTP-сессию."""
         if self._session is None or self._session.closed:
@@ -157,7 +187,7 @@ class AntilopayService:
                 data=json_body,
                 headers=self._build_headers(json_body),
             ) as response:
-                data = await response.json(content_type=None)
+                data = await self._read_json(response)
                 test_log(
                     'api_response create_payment', http_status=response.status, order_id=order_id, response=data
                 )  # TEST-LOG
@@ -211,7 +241,7 @@ class AntilopayService:
                 data=json_body,
                 headers=self._build_headers(json_body),
             ) as response:
-                data = await response.json(content_type=None)
+                data = await self._read_json(response)
 
                 if response.status == 200:
                     return data
@@ -261,7 +291,7 @@ class AntilopayService:
                 data=json_body,
                 headers=self._build_headers(json_body),
             ) as response:
-                data = await response.json(content_type=None)
+                data = await self._read_json(response)
                 test_log('api_response cancel_recurrent', http_status=response.status, response=data)  # TEST-LOG
                 api_code = data.get('code')
                 if response.status == 200 and api_code in (0, 28):
@@ -294,7 +324,7 @@ class AntilopayService:
                 data=json_body,
                 headers=self._build_headers(json_body),
             ) as response:
-                data = await response.json(content_type=None)
+                data = await self._read_json(response)
                 # TEST-LOG: реальная структура ответа (в доке она с ошибками)
                 test_log('api_response check_recurrent', http_status=response.status, response=data)
                 api_code = data.get('code')

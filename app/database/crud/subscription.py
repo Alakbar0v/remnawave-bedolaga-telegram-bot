@@ -2812,7 +2812,7 @@ async def create_trial_draft_subscription(
     await db.refresh(subscription)
 
     logger.info(
-        '🎁 Создан Lava-триал черновик (активируется вебхуком activated)',
+        '🎁 Создан триал-черновик (активируется по callback привязки оплаты)',
         user_id=user_id,
         subscription_id=subscription.id,
         tariff_id=tariff.id,
