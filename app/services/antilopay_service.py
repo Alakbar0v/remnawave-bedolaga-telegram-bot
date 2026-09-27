@@ -1,4 +1,4 @@
-"""Сервис для работы с API Antilopay (lk.antilopay.com/api/v2)."""
+"""Сервис для работы с API Antilopay (lk.antilopay.com/api/v1)."""
 
 import base64
 import json
@@ -17,7 +17,7 @@ from app.services.antilopay_test_log import test_log  # TEST-LOG: временн
 
 logger = structlog.get_logger(__name__)
 
-API_BASE_URL = 'https://lk.antilopay.com/api/v2'
+API_BASE_URL = 'https://lk.antilopay.com/api/v1'
 
 
 class AntilopayAPIError(Exception):
