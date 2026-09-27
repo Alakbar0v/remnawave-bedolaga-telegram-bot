@@ -2,6 +2,7 @@
 
 import base64
 import json
+import re
 from typing import Any
 
 import aiohttp
@@ -62,19 +63,24 @@ class AntilopayService:
         try:
             data = json.loads(raw)
         except ValueError:
+            # HTML-страница (WAF/блокировка/техработы): CSS и теги в лог не нужны — только видимый текст.
+            visible = re.sub(r'(?is)<(style|script)[^>]*>.*?</\1>', ' ', raw)
+            visible = re.sub(r'(?s)<[^>]+>', ' ', visible)
+            visible = re.sub(r'\s+', ' ', visible).strip()
             # TEST-LOG: временно, удалить вместе с antilopay_test_log
             test_log(
                 'api_response NON_JSON',
                 http_status=response.status,
                 url=str(response.url),
                 content_type=response.headers.get('Content-Type'),
-                body_preview=raw[:500],
+                body_preview=raw[:300],
+                visible_text=visible[:500],
             )
             logger.error(
                 'Antilopay: ответ не является JSON',
                 status_code=response.status,
                 url=str(response.url),
-                body_preview=raw[:200],
+                visible_text=visible[:300],
             )
             raise AntilopayAPIError(response.status, f'ответ не JSON (HTTP {response.status})') from None
         if not isinstance(data, dict):
