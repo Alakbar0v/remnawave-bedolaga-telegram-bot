@@ -172,12 +172,12 @@ async def test_show_trial_tariffs_blocks_when_restricted():
 
 
 @pytest.mark.asyncio
-async def test_show_trial_confirm_shows_card_button_without_calling_lava():
-    """Выбор тарифа — отдельный шаг от оплаты: Lava API не дёргается сразу."""
+async def test_show_trial_tariffs_shows_card_button_without_calling_lava():
+    """Тариф выбирается автоматически (без экрана выбора) — Lava API не дёргается сразу,
+    только показывается кнопка привязки карты."""
     from app.handlers.subscription import purchase
 
     cb, user, db = _make_cb_user_db()
-    cb.data = 'trial_pick:42'
 
     fake_tariff = MagicMock()
     fake_tariff.id = 42
@@ -188,10 +188,12 @@ async def test_show_trial_confirm_shows_card_button_without_calling_lava():
 
     import app.database.crud.tariff as tariff_crud
 
-    with patch.object(tariff_crud, 'get_tariff_by_id', AsyncMock(return_value=fake_tariff)):
-        await purchase.show_trial_confirm(cb, user, db)
+    with patch.object(tariff_crud, 'resolve_trial_tariffs', AsyncMock(return_value=[fake_tariff])):
+        await purchase.show_trial_tariffs(cb, user, db)
 
     cb.message.edit_text.assert_awaited_once()
     _, kwargs = cb.message.edit_text.call_args
     callbacks = [btn.callback_data for row in kwargs['reply_markup'].inline_keyboard for btn in row]
     assert 'trial_card_pay:42' in callbacks
+    # Кнопка «Назад» ведёт сразу в главное меню — промежуточного экрана выбора больше нет.
+    assert 'back_to_menu' in callbacks

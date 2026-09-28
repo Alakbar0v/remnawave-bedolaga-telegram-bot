@@ -691,20 +691,19 @@ async def _activate_pending_trial(
     answer_func: Callable[..., Any],
     bot: 'Bot | None' = None,
 ) -> None:
-    """По диплинку /start trial (rich-меню) показывает оффер триала с выбором
-    тарифа и кнопкой привязки карты — вместо мгновенной бесплатной
-    активации.
+    """По диплинку /start trial (rich-меню) сразу показывает экран
+    подтверждения триала с кнопкой привязки карты — вместо мгновенной
+    бесплатной активации и без промежуточного выбора тарифа.
 
     Вызывается перед показом главного меню. Гейты и экран повторяют
     ``show_trial_tariffs`` (главный вход триала из меню, callback
     ``menu_trial``): триал включён, не отключён для auth_type юзера, не
-    использован ранее, список тарифов строит тот же
-    ``build_trial_choose_screen`` — все тарифы с ``is_trial_available``
-    (``resolve_trial_tariffs``), даже если он состоит из одного.
-    ``tariff.trial_card_product_id`` (сегодня — Lava) сюда не примешивается,
-    это уровень оплаты, а не доступности триала: если у тарифа продукт не
-    настроен, ``start_lava_trial`` вернёт понятную ошибку при нажатии на
-    кнопку. Must be called BEFORE state.clear().
+    использован ранее, тариф берётся тем же ``build_trial_confirm_screen``
+    — первый по ``display_order`` из ``resolve_trial_tariffs``, даже если он
+    единственный. ``tariff.trial_card_product_id`` (сегодня — Lava) сюда не
+    примешивается, это уровень оплаты, а не доступности триала: если у
+    тарифа продукт не настроен, ``start_lava_trial`` вернёт понятную ошибку
+    при нажатии на кнопку. Must be called BEFORE state.clear().
     """
     try:
         fresh_state = await state.get_data()
@@ -720,7 +719,7 @@ async def _activate_pending_trial(
             return
 
         from app.database.crud.tariff import resolve_trial_tariffs
-        from app.handlers.subscription.purchase import build_trial_choose_screen
+        from app.handlers.subscription.purchase import build_trial_confirm_screen
 
         # is_active намеренно не проверяется — триальный тариф может быть
         # скрыт из обычной покупки, но доступен для триала.
@@ -731,7 +730,7 @@ async def _activate_pending_trial(
             return
 
         texts = get_texts(user.language)
-        text, keyboard = build_trial_choose_screen(texts, trial_tariffs)
+        text, keyboard = build_trial_confirm_screen(texts, trial_tariffs[0])
         await answer_func(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
     except Exception:
         logger.exception('Не удалось показать оффер триала по диплинку', user_id=getattr(user, 'id', None))

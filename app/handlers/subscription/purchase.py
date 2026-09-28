@@ -800,34 +800,55 @@ def _get_trial_payment_keyboard(language: str, can_pay_from_balance: bool = Fals
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def build_trial_choose_screen(
+def build_trial_confirm_screen(
     texts: Any,
-    trial_tariffs: list[Tariff],
+    tariff: Tariff,
     *,
     back_callback: str = 'back_to_menu',
 ) -> tuple[str, types.InlineKeyboardMarkup]:
-    """Текст и клавиатура экрана выбора триального тарифа.
+    """Текст и клавиатура экрана подтверждения триала со способом оплаты.
 
-    Провайдер оплаты (сегодня — Lava, карта/СБП) на этом экране ещё не
-    выбран, поэтому имя и коллбэки провайдеро-нейтральны — см. ``trial_pick:``.
+    Экран выбора тарифа убран: если триальных тарифов помечено несколько
+    (``resolve_trial_tariffs``), берётся первый по ``display_order`` — тот
+    же порядок, что раньше показывал экран выбора. Общая для главного входа
+    (``show_trial_tariffs``, callback ``menu_trial``) и диплинка
+    ``/start trial`` (``_activate_pending_trial`` в ``app.handlers.start``).
 
-    Общий для главного входа (``show_trial_tariffs``, callback
-    ``menu_trial``) и диплинка ``/start trial`` (``_activate_pending_trial``
-    в ``app.handlers.start``) — оба показывают один и тот же список тарифов,
-    помеченных ``is_trial_available`` (``resolve_trial_tariffs``), даже если
-    он состоит из одного тарифа: поведение должно быть одинаковым независимо
-    от точки входа.
+    Кнопка «Назад» ведёт сразу в главное меню (``back_callback``), а не на
+    промежуточный экран выбора — его больше нет.
     """
+    text = texts.t(
+        'TRIAL_CONFIRM_TARIFF',
+        '🎁 <b>{tariff_name}</b>\n\n'
+        '📊 Трафик: {traffic}\n'
+        '📱 Устройств: {devices}\n\n'
+        'Спишется 1 ₽ для проверки, доступ откроется сразу.',
+    ).format(
+        tariff_name=html.escape(tariff.name),
+        traffic=texts.format_traffic(tariff.traffic_limit_gb),
+        devices=tariff.device_limit,
+    )
     buttons = [
-        [types.InlineKeyboardButton(text=tariff.name, callback_data=f'trial_pick:{tariff.id}')]
-        for tariff in trial_tariffs
+        [
+            types.InlineKeyboardButton(
+                text=texts.t('LAVA_TRIAL_PURCHASE_BUTTON', 'Карта'),
+                icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
+                callback_data=f'trial_card_pay:{tariff.id}',
+            )
+        ],
     ]
+    if settings.is_antilopay_sbp_enabled():
+        buttons.append(
+            [
+                types.InlineKeyboardButton(
+                    text=texts.t('LAVA_SBP_PURCHASE_BUTTON', 'СБП'),
+                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
+                    callback_data=f'trial_sbp_pay:{tariff.id}',
+                )
+            ]
+        )
     buttons.append([types.InlineKeyboardButton(text=texts.BACK, callback_data=back_callback)])
 
-    text = texts.t(
-        'TRIAL_CHOOSE_TARIFF',
-        '🎁 <b>Пробный период</b>\n\nВыберите тариф. Спишется 1 ₽ для проверки, доступ откроется сразу.',
-    )
     return text, types.InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -837,16 +858,17 @@ async def show_trial_tariffs(
     db_user: User,
     db: AsyncSession,
 ):
-    """Список тарифов для триала (главный вход, кнопка '🎁 Пробная подписка' в
-    главном меню, callback ``menu_trial``).
+    """Оффер триала (главный вход, кнопка '🎁 Пробная подписка' в главном
+    меню, callback ``menu_trial``): сразу экран подтверждения со способом
+    оплаты, без промежуточного выбора тарифа (см. ``build_trial_confirm_screen``).
 
-    Список строится по признаку ``is_trial_available`` (``resolve_trial_tariffs``
-    — все помеченные тарифы, не один), а НЕ по наличию продукта у провайдера
+    Тариф берётся по признаку ``is_trial_available`` (``resolve_trial_tariffs``,
+    первый по ``display_order``), а НЕ по наличию продукта у провайдера
     карточного триала: доступность триала и способ его оплаты — разные
     уровни. Провайдер (``tariff.trial_card_product_id``, сегодня Lava)
-    появляется только на следующем шаге, как способ оплаты для уже выбранного
-    тарифа (см. ``start_trial_card``); если у тарифа он не настроен —
-    ``start_lava_trial`` вернёт понятную ошибку, а не молчаливый сбой.
+    участвует только в оплате (см. ``start_trial_card``); если у тарифа он
+    не настроен — ``start_lava_trial`` вернёт понятную ошибку, а не молчаливый
+    сбой.
 
     Гейты (ограничение на покупку, отключённый триал, уже использован)
     повторяют то, что раньше делал ``activate_trial`` — тот путь больше не
@@ -900,70 +922,9 @@ async def show_trial_tariffs(
         )
         return
 
-    text, keyboard = build_trial_choose_screen(texts, trial_tariffs)
+    tariff = trial_tariffs[0]
+    text, keyboard = build_trial_confirm_screen(texts, tariff)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
-    await callback.answer()
-
-
-@error_handler
-async def show_trial_confirm(
-    callback: types.CallbackQuery,
-    db_user: User,
-    db: AsyncSession,
-):
-    """Подтверждение выбранного тарифа перед оплатой триала.
-
-    Зеркало confirm-экрана обычной покупки тарифа
-    (``tariff_purchase.get_tariff_confirm_keyboard``) — выбор тарифа не
-    запускает оплату сам по себе, для этого нужно отдельное нажатие на
-    способ оплаты: '💳 Карта' (рекуррент, freeDays, Lava) и '📱 СБП' (СБП-рекуррент
-    Antilopay с отложенным первым списанием, см. ``start_antilopay_trial_sbp``).
-    """
-    texts = get_texts(db_user.language)
-    tariff_id = int(callback.data.split(':')[1])
-
-    from app.database.crud.tariff import get_tariff_by_id
-
-    tariff = await get_tariff_by_id(db, tariff_id)
-    if not tariff or not tariff.is_active:
-        await callback.answer(texts.t('TARIFF_PURCHASE_UNAVAILABLE', 'Тариф недоступен'), show_alert=True)
-        return
-
-    text = texts.t(
-        'TRIAL_CONFIRM_TARIFF',
-        '🎁 <b>{tariff_name}</b>\n\n'
-        '📊 Трафик: {traffic}\n'
-        '📱 Устройств: {devices}\n\n'
-        'Спишется 1 ₽ для проверки, доступ откроется сразу.',
-    ).format(
-        tariff_name=html.escape(tariff.name),
-        traffic=texts.format_traffic(tariff.traffic_limit_gb),
-        devices=tariff.device_limit,
-    )
-    buttons = [
-        [
-            types.InlineKeyboardButton(
-                text=texts.t('LAVA_TRIAL_PURCHASE_BUTTON', 'Карта'),
-                icon_custom_emoji_id=CARD_ICON_CUSTOM_EMOJI_ID,
-                callback_data=f'trial_card_pay:{tariff.id}',
-            )
-        ],
-    ]
-    if settings.is_antilopay_sbp_enabled():
-        buttons.append(
-            [
-                types.InlineKeyboardButton(
-                    text=texts.t('LAVA_SBP_PURCHASE_BUTTON', 'СБП'),
-                    icon_custom_emoji_id=SBP_ICON_CUSTOM_EMOJI_ID,
-                    callback_data=f'trial_sbp_pay:{tariff.id}',
-                )
-            ]
-        )
-    buttons.append([types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_trial')])
-
-    await callback.message.edit_text(
-        text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode='HTML'
-    )
     await callback.answer()
 
 
@@ -4593,17 +4554,17 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(start_multi_revoke, F.data.startswith('sr:'))
 
     # '🎁 Пробная подписка' в главном меню, пост-регистрационная кнопка и
-    # диплинк /start trial (callback menu_trial) ведут на выбор тарифа под
-    # оплату картой/СБП (сегодня оба через Lava, см. services/payment/lava.py)
-    # — все три источника показывают один и тот же список тарифов
-    # (resolve_trial_tariffs). Старая ветка show_trial_offer (мёртвый код,
+    # диплинк /start trial (callback menu_trial) сразу ведут на экран
+    # подтверждения с оплатой картой/СБП (сегодня оба через Lava, см.
+    # services/payment/lava.py) — без промежуточного выбора тарифа, первый
+    # по display_order из resolve_trial_tariffs берётся автоматически (см.
+    # build_trial_confirm_screen). Старая ветка show_trial_offer (мёртвый код,
     # ни на что не зарегистрирован) / activate_trial (один фиксированный
     # триальный тариф + разовые способы оплаты) с этих экранов больше не
     # вызывается, но код и регистрация trial_activate сохранены — на них
     # ссылается кнопка 'trial' в конструкторе меню
     # (services/menu_layout/constants.py), если админ добавит её вручную.
     dp.callback_query.register(show_trial_tariffs, F.data == 'menu_trial')
-    dp.callback_query.register(show_trial_confirm, F.data.startswith('trial_pick:'))
     dp.callback_query.register(start_trial_card, F.data.startswith('trial_card_pay:'))
     dp.callback_query.register(start_trial_sbp, F.data.startswith('trial_sbp_pay:'))
 

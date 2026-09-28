@@ -75,9 +75,9 @@ def test_single_subscription_block_reuses_menu_status_builder():
 def test_trial_deeplink_wired_in_start():
     """Диплинк /start trial: ветка сташит pending_trial, drain — рядом с купонным
     (до state.clear() и показа меню). Вместо мгновенной бесплатной активации
-    показывает оффер триала со списком тарифов под оплату картой/СБП
-    (build_trial_choose_screen) — тот же поток и тот же список, что и
-    в главном меню (menu_trial -> show_trial_tariffs)."""
+    сразу показывает экран подтверждения под оплату картой/СБП
+    (build_trial_confirm_screen), без промежуточного выбора тарифа — тот же
+    поток, что и в главном меню (menu_trial -> show_trial_tariffs)."""
     source = _START_PATH.read_text(encoding='utf-8')
 
     assert "if start_parameter == 'trial':" in source
@@ -92,6 +92,6 @@ def test_trial_deeplink_wired_in_start():
     assert 'is_trial_already_used' in tail
     # Триал больше не создаётся напрямую этим путём — только кнопка привязки карты
     assert 'create_trial_subscription' not in tail
-    # Список тарифов и экран — общие с show_trial_tariffs, не свой f-string
+    # Тариф и экран — общие с show_trial_tariffs, не свой f-string
     assert 'resolve_trial_tariffs' in tail
-    assert 'build_trial_choose_screen' in tail
+    assert 'build_trial_confirm_screen' in tail
