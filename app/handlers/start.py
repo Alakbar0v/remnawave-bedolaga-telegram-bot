@@ -690,7 +690,7 @@ async def _activate_pending_trial(
     user: 'User',
     answer_func: Callable[..., Any],
     bot: 'Bot | None' = None,
-) -> None:
+) -> bool:
     """По диплинку /start trial (rich-меню) сразу показывает экран
     подтверждения триала с кнопкой привязки карты — вместо мгновенной
     бесплатной активации и без промежуточного выбора тарифа.
@@ -704,19 +704,23 @@ async def _activate_pending_trial(
     примешивается, это уровень оплаты, а не доступности триала: если у
     тарифа продукт не настроен, ``start_lava_trial`` вернёт понятную ошибку
     при нажатии на кнопку. Must be called BEFORE state.clear().
+
+    Возвращает True, если экран подтверждения триала был показан — тогда
+    вызывающий код (start.py) пропускает повторный показ главного меню
+    следом, чтобы не отправлять два сообщения подряд.
     """
     try:
         fresh_state = await state.get_data()
         if not fresh_state.get('pending_trial'):
-            return
+            return False
         await state.update_data(pending_trial=None)
 
         if settings.TRIAL_DURATION_DAYS <= 0 or settings.TRIAL_DISABLED_FOR == 'all':
-            return
+            return False
         if settings.is_trial_disabled_for_user(getattr(user, 'auth_type', None)):
-            return
+            return False
         if user.is_trial_already_used():
-            return
+            return False
 
         from app.database.crud.tariff import resolve_trial_tariffs
         from app.handlers.subscription.purchase import build_trial_confirm_screen
@@ -727,14 +731,15 @@ async def _activate_pending_trial(
         if not trial_tariffs:
             # Ни один тариф не помечен is_trial_available, TRIAL_TARIFF_ID тоже
             # не настроен — привязывать карту не к чему, молча пропускаем.
-            return
+            return False
 
         texts = get_texts(user.language)
         text, keyboard = build_trial_confirm_screen(texts, trial_tariffs[0])
         await answer_func(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        return True
     except Exception:
         logger.exception('Не удалось показать оффер триала по диплинку', user_id=getattr(user, 'id', None))
-        return
+        return False
 
 
 async def _claim_phantom_user(
@@ -1694,10 +1699,11 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
                 logger.error('Ошибка отправки уведомления о рекламной кампании', error=e)
 
         # Auto-activate pending gift/coupon/trial if deep link contained GIFT_/coupon_/trial
+        trial_offer_shown = False
         if user:
             await _activate_pending_gift_after_registration(db, state, user, message.answer)
             await _redeem_pending_coupon(db, state, user, message.answer)
-            await _activate_pending_trial(db, state, user, message.answer, message.bot)
+            trial_offer_shown = await _activate_pending_trial(db, state, user, message.answer, message.bot)
             await _persist_pending_subid_after_registration(db, state, user)
             await _persist_pending_ttclid_after_registration(state, user, fire_registration=False)
             await state.update_data(
@@ -1710,6 +1716,12 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
             )
             # Refresh user to pick up newly created subscriptions
             await db.refresh(user, attribute_names=['subscriptions'])
+
+        if trial_offer_shown:
+            # Экран подтверждения триала уже отправлен выше — не дублируем его
+            # вторым сообщением с главным меню (см. _activate_pending_trial).
+            await state.clear()
+            return
 
         user_subs_for_flags = getattr(user, 'subscriptions', None) or []
         first_sub_for_flags = next(
