@@ -571,7 +571,7 @@ class AntilopayPaymentMixin:
             raise ValueError('Длительность пробного периода не настроена')
 
         order_id = f'alp{user.telegram_id or user.id}_{uuid.uuid4().hex[:6]}'
-        description = f'Пробный период {free_days} дн., затем автопродление'
+        description = f'Бесплатный пробный период на {free_days} дн.'
         result_url = settings.ANTILOPAY_RETURN_URL
 
         api_result = await antilopay_service.create_payment(
