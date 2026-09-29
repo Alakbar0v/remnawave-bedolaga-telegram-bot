@@ -1031,17 +1031,20 @@ class AntilopayPaymentMixin:
         try:
             from app.services.subscription_service import SubscriptionService
 
-            await SubscriptionService().update_remnawave_user(
-                db,
-                subscription,
-                reset_traffic=settings.RESET_TRAFFIC_ON_PAYMENT,
-                reset_reason='Активация триала Antilopay',
-            )
+            # Новый пользователь ещё не заведён в панели — нужен create, а не update.
+            await SubscriptionService().create_remnawave_user(db, subscription)
         except Exception as sync_error:  # best-effort: активация уже в БД
-            logger.warning(
-                'Синк панели после активации триала Antilopay не удался',
+            logger.error(
+                'Не удалось создать пользователя RemnaWave после активации триала Antilopay',
                 error=str(sync_error),
                 subscription_id=subscription_id_for_log,
+            )
+            from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+            remnawave_retry_queue.enqueue(
+                subscription_id=subscription_id_for_log,
+                user_id=record.user_id,
+                action='create',
             )
         return True
 
