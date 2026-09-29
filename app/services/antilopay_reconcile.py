@@ -9,6 +9,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.database.models import AntilopaySubscription
 from app.services.antilopay_service import antilopay_service
 from app.services.antilopay_test_log import test_log  # TEST-LOG: временно, удалить
 from app.services.panel_sync.db_session import rollback_quietly
@@ -48,9 +49,13 @@ async def reconcile_antilopay_subscriptions(db: AsyncSession, bot: Any = None) -
         logger.warning('Ошибка реконсиляции Antilopay-подписок', error=error)
         return
 
-    # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
-    for record_id, record in [(item.id, item) for item in records]:
+    # Идентификаторы — заранее, запись перечитываем на каждом шаге: после отката (сбой соседней
+    # записи) ORM-объекты списка протухают, и чтение полей упало бы MissingGreenlet.
+    for record_id in [item.id for item in records]:
         try:
+            record = await db.get(AntilopaySubscription, record_id, populate_existing=True)
+            if record is None:
+                continue
             remote_missing = True
             remote_status: str | None = None
             next_payment: datetime | None = None
@@ -151,9 +156,13 @@ async def reconcile_antilopay_subscriptions(db: AsyncSession, bot: Any = None) -
         logger.warning('Ошибка свипа отменённых Antilopay-подписок', error=error)
         return
 
-    # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
-    for record_id, record in [(item.id, item) for item in cancelled]:
+    # Идентификаторы — заранее, запись перечитываем на каждом шаге: после отката (сбой соседней
+    # записи) ORM-объекты списка протухают, и чтение полей упало бы MissingGreenlet.
+    for record_id in [item.id for item in cancelled]:
         try:
+            record = await db.get(AntilopaySubscription, record_id, populate_existing=True)
+            if record is None:
+                continue
             remote = await antilopay_service.check_recurrent(recurrent_id=record.recurrent_id)
             remote_status = normalize_remote_status(remote.get('status')) if remote else None
             if remote_status in (None, 'cancelled', 'failed', 'expired'):

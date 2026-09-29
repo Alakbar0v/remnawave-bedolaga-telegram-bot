@@ -2255,6 +2255,13 @@ async def wipe_trial_subscriptions(db: AsyncSession, subscriptions) -> int:
 
     subscription_ids = [subscription.id for subscription in to_reset]
 
+    # Платный триал держит рекуррент у провайдера (СБП/карта): строка привязки уйдёт
+    # каскадом вместе с подпиской, поэтому отменяем ДО удаления — иначе спишут после триала.
+    from app.services.recurring_cancel import cancel_all_recurring_for_subscription_safe
+
+    for subscription_id in subscription_ids:
+        await cancel_all_recurring_for_subscription_safe(db, subscription_id, commit=False)
+
     try:
         await db.execute(delete(SubscriptionServer).where(SubscriptionServer.subscription_id.in_(subscription_ids)))
     except Exception as error:  # pragma: no cover - defensive logging

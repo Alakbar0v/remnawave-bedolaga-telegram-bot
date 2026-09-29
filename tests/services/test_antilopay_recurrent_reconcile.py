@@ -250,6 +250,67 @@ async def test_reconcile_failure_rolls_back_so_session_stays_usable(monkeypatch)
         assert (await db.execute(select(func.count()).select_from(User))).scalar_one() == 1
 
 
+async def test_reconcile_failure_on_one_record_does_not_skip_the_next(monkeypatch):
+    """После отката сбойной записи следующие перечитываются, а не падают на протухших объектах."""
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, subscription, first = await _seed_record(db, status='PENDING', recurrent_id=None, free_days=3)
+        subscription.status = SubscriptionStatus.PENDING.value
+        subscription.is_trial = True
+        await db.commit()
+        telegram_id = user.telegram_id
+
+        # Вторая запись — живая подписка другого пользователя, у которой провайдер уже отменил рекуррент
+        other = User(telegram_id=888, username='u888', first_name='U', status=UserStatus.ACTIVE.value, language='ru')
+        db.add(other)
+        await db.commit()
+        now = datetime.now(UTC)
+        other_sub = Subscription(
+            user_id=other.id,
+            tariff_id=subscription.tariff_id,
+            status=SubscriptionStatus.ACTIVE.value,
+            is_trial=False,
+            start_date=now,
+            end_date=now + timedelta(days=10),
+            remnawave_short_id='shortother',
+        )
+        db.add(other_sub)
+        await db.commit()
+        second = await sub_crud.create_antilopay_subscription(
+            db,
+            user_id=other.id,
+            subscription_id=other_sub.id,
+            tariff_id=subscription.tariff_id,
+            order_id='alp-order-2',
+            antilopay_payment_id='APAY-2',
+            charge_days=30,
+            amount_kopeks=10000,
+            redirect_url=None,
+            free_days=0,
+            status='ACTIVE',
+        )
+        second.recurrent_id = 'rec-2'
+        await db.commit()
+        second_id = second.id
+
+        _patch(
+            monkeypatch,
+            check_recurrent=AsyncMock(return_value={'code': 0, 'status': 'PROVIDER_CANCEL'}),
+            check_payment=AsyncMock(return_value={'code': 0, 'status': 'SUCCESS', 'recurrent_id': 'rec-9'}),
+        )
+
+        async def poisoned_flush(self, db, record):
+            db.add(User(telegram_id=telegram_id, username='dup', status=UserStatus.ACTIVE.value))
+            await db.flush()  # UNIQUE(telegram_id) → откат сессии, объекты списка протухают
+
+        monkeypatch.setattr(antilopay_module._AntilopayRecurrentAgent, '_activate_antilopay_trial', poisoned_flush)
+
+        await reconcile_module.reconcile_antilopay_subscriptions(db)
+
+        refreshed = await sub_crud.get_antilopay_subscription_by_order_id(db, 'alp-order-2')
+        assert refreshed.id == second_id
+        assert refreshed.status == 'CANCELLED'
+
+
 async def test_reconcile_repeats_cancel_when_remote_still_active(monkeypatch):
     async with memory_session(monkeypatch, TABLES) as db:
         _, _, record = await _seed_record(db, status='CANCELLED')

@@ -38,7 +38,9 @@ from app.database.crud.user import (
 )
 from app.database.database import AsyncSessionLocal
 from app.database.models import (
+    LavaSubscription,
     MonitoringLog,
+    PlategaSubscription,
     Subscription,
     SubscriptionStatus,
     Ticket,
@@ -2973,9 +2975,13 @@ class MonitoringService:
 
             records = await sub_crud.list_platega_subscriptions_by_statuses(db, ['PENDING', 'ACTIVE', 'PAST_DUE'])
 
-            # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
-            for record_id, record in [(item.id, item) for item in records]:
+            # Идентификаторы — заранее, запись перечитываем на каждом шаге: после отката (сбой соседней
+            # записи) ORM-объекты списка протухают, и чтение полей упало бы MissingGreenlet.
+            for record_id in [item.id for item in records]:
                 try:
+                    record = await db.get(PlategaSubscription, record_id, populate_existing=True)
+                    if record is None:
+                        continue
                     if record.platega_subscription_id:
                         remote, http_status = await service.get_subscription_status(record.platega_subscription_id)
                         # 404 = провайдер достоверно не знает подписку; None-статус =
@@ -3032,9 +3038,13 @@ class MonitoringService:
             cancelled_records = await sub_crud.list_recently_cancelled_platega_subscriptions(
                 db, datetime.now(UTC) - timedelta(days=30)
             )
-            # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
-            for record_id, record in [(item.id, item) for item in cancelled_records]:
+            # Идентификаторы — заранее, запись перечитываем на каждом шаге: после отката (сбой соседней
+            # записи) ORM-объекты списка протухают, и чтение полей упало бы MissingGreenlet.
+            for record_id in [item.id for item in cancelled_records]:
                 try:
+                    record = await db.get(PlategaSubscription, record_id, populate_existing=True)
+                    if record is None:
+                        continue
                     remote = await service.get_subscription(record.platega_subscription_id)
                     remote_status = (
                         str(remote.get('status')).strip().lower()
@@ -3090,9 +3100,13 @@ class MonitoringService:
 
             records = await sub_crud.list_lava_subscriptions_by_statuses(db, ['PENDING', 'ACTIVE', 'PAST_DUE'])
 
-            # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
-            for record_id, record in [(item.id, item) for item in records]:
+            # Идентификаторы — заранее, запись перечитываем на каждом шаге: после отката (сбой соседней
+            # записи) ORM-объекты списка протухают, и чтение полей упало бы MissingGreenlet.
+            for record_id in [item.id for item in records]:
                 try:
+                    record = await db.get(LavaSubscription, record_id, populate_existing=True)
+                    if record is None:
+                        continue
                     # Нет ни одного идентификатора — провайдер о подписке точно
                     # не знает (subscribe не дошёл).
                     remote_missing = True
@@ -3169,9 +3183,13 @@ class MonitoringService:
             cancelled_records = await sub_crud.list_recently_cancelled_lava_subscriptions(
                 db, datetime.now(UTC) - timedelta(days=30)
             )
-            # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
-            for record_id, record in [(item.id, item) for item in cancelled_records]:
+            # Идентификаторы — заранее, запись перечитываем на каждом шаге: после отката (сбой соседней
+            # записи) ORM-объекты списка протухают, и чтение полей упало бы MissingGreenlet.
+            for record_id in [item.id for item in cancelled_records]:
                 try:
+                    record = await db.get(LavaSubscription, record_id, populate_existing=True)
+                    if record is None:
+                        continue
                     payload = await lava_service.get_recurrent_subscription_status(
                         subscription_id=record.lava_subscription_id,
                     )

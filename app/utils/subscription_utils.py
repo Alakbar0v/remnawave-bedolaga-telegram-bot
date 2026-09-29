@@ -31,6 +31,10 @@ async def cleanup_duplicate_subscriptions(db: AsyncSession) -> int:
         subscriptions = subscriptions_result.scalars().all()
 
         for old_subscription in subscriptions[1:]:
+            # Рекуррент у провайдера привязан к удаляемой подписке — отменяем до удаления.
+            from app.services.recurring_cancel import cancel_all_recurring_for_subscription_safe
+
+            await cancel_all_recurring_for_subscription_safe(db, old_subscription.id, commit=False)
             await db.delete(old_subscription)
             total_deleted += 1
             logger.info(
