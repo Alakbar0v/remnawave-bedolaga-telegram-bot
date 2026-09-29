@@ -819,12 +819,21 @@ class LavaPaymentMixin:
                 'cancelled': texts.t('LAVA_RECURRING_NOTIFY_CANCELLED', 'ℹ️ Автопродление Lava отменено.'),
                 'trial_started': texts.t(
                     'TRIAL_CARD_NOTIFY_STARTED',
-                    '🎁 Карта привязана, пробный период активирован.',
+                    '🎁 Пробный период активирован.',
                 ),
             }
             text = messages.get(kind)
             if text:
-                await bot.send_message(chat_id=user.telegram_id, text=text)
+                reply_markup = None
+                if kind == 'trial_started':
+                    from aiogram import types
+
+                    reply_markup = types.InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [types.InlineKeyboardButton(text=texts.MENU_SUBSCRIPTION, callback_data='menu_subscription')]
+                        ]
+                    )
+                await bot.send_message(chat_id=user.telegram_id, text=text, reply_markup=reply_markup)
         except Exception as error:  # pragma: no cover - best-effort notify
             logger.warning('Не удалось отправить уведомление об автопродлении Lava', error=str(error), kind=kind)
 

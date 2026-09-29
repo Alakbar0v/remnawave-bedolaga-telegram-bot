@@ -1,5 +1,5 @@
-"""Бот: статус и отмена СБП-автопродления Antilopay
-(``handle_antilopay_recurring_menu`` / ``_cancel`` и кнопка входа в меню автоплатежа).
+"""Бот: статус и отмена автопродления Lava
+(``handle_lava_recurring_menu`` / ``_cancel`` и кнопка входа в меню автоплатежа).
 """
 
 from datetime import UTC, datetime
@@ -10,7 +10,8 @@ import app.handlers.subscription.autopay as autopay_mod
 from app.config import settings
 
 
-GET_ACTIVE = 'app.database.crud.antilopay_subscription.get_active_antilopay_subscription_by_subscription'
+GET_ACTIVE = 'app.database.crud.lava_subscription.get_active_lava_subscription_by_subscription'
+CANCEL = 'app.services.payment.lava.cancel_lava_recurring_by_local_id'
 
 
 def _make_callback():
@@ -48,12 +49,12 @@ async def test_menu_shows_status_amount_and_cancel_button(monkeypatch):
     monkeypatch.setattr(autopay_mod, '_resolve_subscription', AsyncMock(return_value=(SimpleNamespace(id=10), 10)))
     monkeypatch.setattr(GET_ACTIVE, AsyncMock(return_value=_record()))
 
-    await autopay_mod.handle_antilopay_recurring_menu(cb, user, db)
+    await autopay_mod.handle_lava_recurring_menu(cb, user, db)
 
     args, kwargs = cb.message.edit_text.call_args
     assert 'активно' in args[0]
     assert settings.format_price(10000) in args[0]
-    assert 'antilopay_recurring_cancel' in _callbacks(kwargs['reply_markup'])
+    assert 'lava_recurring_cancel' in _callbacks(kwargs['reply_markup'])
 
 
 async def test_menu_without_record_has_no_cancel_button(monkeypatch):
@@ -61,30 +62,24 @@ async def test_menu_without_record_has_no_cancel_button(monkeypatch):
     monkeypatch.setattr(autopay_mod, '_resolve_subscription', AsyncMock(return_value=(SimpleNamespace(id=10), 10)))
     monkeypatch.setattr(GET_ACTIVE, AsyncMock(return_value=None))
 
-    await autopay_mod.handle_antilopay_recurring_menu(cb, user, db)
+    await autopay_mod.handle_lava_recurring_menu(cb, user, db)
 
     _, kwargs = cb.message.edit_text.call_args
-    assert 'antilopay_recurring_cancel' not in _callbacks(kwargs['reply_markup'])
+    assert 'lava_recurring_cancel' not in _callbacks(kwargs['reply_markup'])
 
 
 async def test_cancel_cancels_record_and_returns_to_autopay_menu(monkeypatch):
-    """Отмена не гейтится флагом ANTILOPAY_SBP_ENABLED — это операция безопасности."""
-    monkeypatch.setattr(settings, 'ANTILOPAY_SBP_ENABLED', False, raising=False)
     cb, user, db = _make_callback(), _make_user(), AsyncMock()
-    record = _record()
     monkeypatch.setattr(autopay_mod, '_resolve_subscription', AsyncMock(return_value=(SimpleNamespace(id=10), 10)))
-    monkeypatch.setattr(GET_ACTIVE, AsyncMock(return_value=record))
+    monkeypatch.setattr(GET_ACTIVE, AsyncMock(return_value=_record()))
     cancel = AsyncMock(return_value=True)
-    monkeypatch.setattr(
-        'app.services.payment.antilopay.AntilopayPaymentMixin.cancel_antilopay_subscription_record', cancel
-    )
+    monkeypatch.setattr(CANCEL, cancel)
     back_to_menu = AsyncMock()
     monkeypatch.setattr(autopay_mod, 'handle_autopay_menu', back_to_menu)
 
-    await autopay_mod.handle_antilopay_recurring_cancel(cb, user, db)
+    await autopay_mod.handle_lava_recurring_cancel(cb, user, db)
 
-    cancel.assert_awaited_once()
-    assert cancel.await_args.args[-1] is record
+    cancel.assert_awaited_once_with(db, 5)
     cb.answer.assert_awaited_once()
     back_to_menu.assert_awaited_once()
 
@@ -93,24 +88,21 @@ async def test_cancel_failure_shows_alert_and_keeps_menu(monkeypatch):
     cb, user, db = _make_callback(), _make_user(), AsyncMock()
     monkeypatch.setattr(autopay_mod, '_resolve_subscription', AsyncMock(return_value=(SimpleNamespace(id=10), 10)))
     monkeypatch.setattr(GET_ACTIVE, AsyncMock(return_value=_record()))
-    monkeypatch.setattr(
-        'app.services.payment.antilopay.AntilopayPaymentMixin.cancel_antilopay_subscription_record',
-        AsyncMock(side_effect=RuntimeError('db down')),
-    )
+    monkeypatch.setattr(CANCEL, AsyncMock(side_effect=RuntimeError('db down')))
     back_to_menu = AsyncMock()
     monkeypatch.setattr(autopay_mod, 'handle_autopay_menu', back_to_menu)
 
-    await autopay_mod.handle_antilopay_recurring_cancel(cb, user, db)
+    await autopay_mod.handle_lava_recurring_cancel(cb, user, db)
 
     assert cb.answer.await_args.kwargs.get('show_alert') is True
     back_to_menu.assert_not_awaited()
 
 
-async def test_autopay_menu_daily_shows_antilopay_entry_only_with_live_record(monkeypatch):
+async def test_autopay_menu_daily_shows_lava_entry_only_with_live_record(monkeypatch):
     subscription = SimpleNamespace(id=10, tariff=SimpleNamespace(is_daily=True))
     monkeypatch.setattr(autopay_mod, '_resolve_subscription', AsyncMock(return_value=(subscription, 10)))
     monkeypatch.setattr(
-        'app.database.crud.lava_subscription.get_active_lava_subscription_by_subscription',
+        'app.database.crud.antilopay_subscription.get_active_antilopay_subscription_by_subscription',
         AsyncMock(return_value=None),
     )
 
@@ -118,10 +110,10 @@ async def test_autopay_menu_daily_shows_antilopay_entry_only_with_live_record(mo
     cb, user, db = _make_callback(), _make_user(), AsyncMock()
     await autopay_mod.handle_autopay_menu(cb, user, db)
     _, kwargs = cb.message.edit_text.call_args
-    assert 'antilopay_recurring_menu' in _callbacks(kwargs['reply_markup'])
+    assert 'lava_recurring_menu' in _callbacks(kwargs['reply_markup'])
 
     monkeypatch.setattr(GET_ACTIVE, AsyncMock(return_value=None))
     cb, user, db = _make_callback(), _make_user(), AsyncMock()
     await autopay_mod.handle_autopay_menu(cb, user, db)
     _, kwargs = cb.message.edit_text.call_args
-    assert 'antilopay_recurring_menu' not in _callbacks(kwargs['reply_markup'])
+    assert 'lava_recurring_menu' not in _callbacks(kwargs['reply_markup'])

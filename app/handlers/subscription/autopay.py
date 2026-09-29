@@ -84,6 +84,9 @@ async def handle_autopay_menu(callback: types.CallbackQuery, db_user: User, db: 
         antilopay_button = await _antilopay_menu_button(db, subscription, texts)
         if antilopay_button is not None:
             daily_keyboard_rows.append([antilopay_button])
+        lava_button = await _lava_menu_button(db, subscription, texts)
+        if lava_button is not None:
+            daily_keyboard_rows.append([lava_button])
         back_cb = f'sm:{sub_id}' if sub_id and settings.is_multi_tariff_enabled() else 'menu_subscription'
         daily_keyboard_rows.append([types.InlineKeyboardButton(text=texts.BACK, callback_data=back_cb)])
 
@@ -138,6 +141,10 @@ async def handle_autopay_menu(callback: types.CallbackQuery, db_user: User, db: 
     antilopay_button = await _antilopay_menu_button(db, subscription, texts)
     if antilopay_button is not None:
         keyboard.inline_keyboard.insert(-1, [antilopay_button])
+
+    lava_button = await _lava_menu_button(db, subscription, texts)
+    if lava_button is not None:
+        keyboard.inline_keyboard.insert(-1, [lava_button])
 
     await callback.message.edit_text(
         text,
@@ -662,6 +669,105 @@ async def handle_antilopay_recurring_cancel(
             return
 
     await callback.answer(texts.t('SBP_RECURRING_CANCELLED', '✅ Автопродление через СБП отменено'))
+    await handle_autopay_menu(callback, db_user, db, state)
+
+
+async def _lava_menu_button(db: AsyncSession, subscription: Any, texts) -> types.InlineKeyboardButton | None:
+    """Кнопка входа в автопродление Lava — только если у подписки есть живая привязка.
+
+    НЕ гейтится LAVA_RECURRENT_ENABLED намеренно: отмена — операция безопасности, при
+    выключенной фиче живые привязки продолжают списывать, путь остановки должен остаться.
+    """
+    from app.database.crud.lava_subscription import get_active_lava_subscription_by_subscription
+
+    record = await get_active_lava_subscription_by_subscription(db, subscription.id)
+    if record is None:
+        return None
+    return types.InlineKeyboardButton(
+        text=texts.t('LAVA_RECURRING_MENU_BUTTON', '💳 Автопродление картой (Lava)'),
+        callback_data='lava_recurring_menu',
+    )
+
+
+async def handle_lava_recurring_menu(
+    callback: types.CallbackQuery, db_user: User, db: AsyncSession, state: FSMContext = None
+):
+    """Автопродление Lava: статус, сумма и кнопка отмены."""
+    texts = get_texts(db_user.language)
+
+    subscription, sub_id = await _resolve_subscription(callback, db_user, db, state)
+    if not subscription:
+        await callback.answer(
+            texts.t('SUBSCRIPTION_ACTIVE_REQUIRED', '⚠️ У вас нет активной подписки!'),
+            show_alert=True,
+        )
+        return
+
+    from app.database.crud.lava_subscription import get_active_lava_subscription_by_subscription
+
+    record = await get_active_lava_subscription_by_subscription(db, subscription.id)
+
+    text = texts.t(
+        'LAVA_RECURRING_MENU_TEXT',
+        '💳 <b>Автопродление картой (Lava)</b>\n\n📊 <b>Статус:</b> {status}',
+    ).format(status=_platega_sbp_status_text(record, texts))
+
+    rows: list[list[types.InlineKeyboardButton]] = []
+    if record is not None:
+        text += texts.t(
+            'ANTILOPAY_RECURRING_AMOUNT_LINE',
+            '\n💰 <b>Сумма списания:</b> {amount}',
+        ).format(amount=settings.format_price(record.amount_kopeks))
+        rows.append(
+            [
+                types.InlineKeyboardButton(
+                    text=texts.t('SBP_RECURRING_CANCEL_BUTTON', '❌ Отменить автооплату'),
+                    callback_data='lava_recurring_cancel',
+                )
+            ]
+        )
+    rows.append([types.InlineKeyboardButton(text=texts.BACK, callback_data='subscription_autopay')])
+
+    await callback.message.edit_text(
+        text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=rows), parse_mode='HTML'
+    )
+    await callback.answer()
+
+
+async def handle_lava_recurring_cancel(
+    callback: types.CallbackQuery, db_user: User, db: AsyncSession, state: FSMContext = None
+):
+    """Отменить автопродление Lava (удалённо и локально) и вернуться в меню автоплатежа.
+
+    НЕ гейтится флагом Lava: отмена — операция безопасности. Доступ, уже выданный
+    (в т.ч. пробный период), остаётся до конца оплаченного срока.
+    """
+    texts = get_texts(db_user.language)
+
+    subscription, sub_id = await _resolve_subscription(callback, db_user, db, state)
+    if not subscription:
+        await callback.answer(
+            texts.t('SUBSCRIPTION_ACTIVE_REQUIRED', '⚠️ У вас нет активной подписки!'),
+            show_alert=True,
+        )
+        return
+
+    from app.database.crud.lava_subscription import get_active_lava_subscription_by_subscription
+    from app.services.payment.lava import cancel_lava_recurring_by_local_id
+
+    record = await get_active_lava_subscription_by_subscription(db, subscription.id)
+    if record is not None:
+        try:
+            await cancel_lava_recurring_by_local_id(db, record.id)
+        except Exception as error:
+            logger.warning('Не удалось отменить автопродление Lava', error=str(error), subscription_id=subscription.id)
+            await callback.answer(
+                texts.t('LAVA_RECURRING_CANCEL_ERROR', '❌ Не удалось отменить автопродление. Попробуйте позже.'),
+                show_alert=True,
+            )
+            return
+
+    await callback.answer(texts.t('LAVA_RECURRING_CANCELLED', '✅ Автопродление Lava отменено'))
     await handle_autopay_menu(callback, db_user, db, state)
 
 

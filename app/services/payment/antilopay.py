@@ -1089,7 +1089,7 @@ class AntilopayPaymentMixin:
                 return
             texts = get_texts(user.language)
             messages = {
-                'trial_started': texts.t('TRIAL_SBP_NOTIFY_STARTED', '🎁 СБП привязан, пробный период активирован.'),
+                'trial_started': texts.t('TRIAL_SBP_NOTIFY_STARTED', '🎁 Пробный период активирован.'),
                 'confirmed': texts.t(
                     'ANTILOPAY_RECURRING_NOTIFY_CONFIRMED', '✅ Подписка продлена автосписанием по СБП.'
                 ),
@@ -1104,7 +1104,15 @@ class AntilopayPaymentMixin:
             text = messages.get(kind)
             if text:
                 reply_markup = None
-                if kind in ('trial_started', 'confirmed'):
+                if kind == 'trial_started':
+                    from aiogram import types
+
+                    reply_markup = types.InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [types.InlineKeyboardButton(text=texts.MENU_SUBSCRIPTION, callback_data='menu_subscription')]
+                        ]
+                    )
+                elif kind == 'confirmed':
                     # Отмена автопродления должна быть под рукой сразу, а не только в глубине меню.
                     from aiogram import types
 
