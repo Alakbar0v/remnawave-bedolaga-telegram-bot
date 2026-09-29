@@ -857,8 +857,25 @@ class LavaPaymentMixin:
             )
             return False
 
-        from app.database.crud.subscription import _lock_subscription_row, reconcile_tariff_traffic_limit
+        from app.database.crud.subscription import (
+            _lock_subscription_row,
+            get_other_alive_subscription_for_tariff,
+            reconcile_tariff_traffic_limit,
+        )
         from app.services.grace_access_echo import undo_grace_overlay_echo
+
+        alive_duplicate = await get_other_alive_subscription_for_tariff(db, subscription)
+        if alive_duplicate is not None:
+            # Вторая привязка карты при уже выданном триале: активация упала бы на
+            # uq_subscriptions_user_tariff_active. Гасим лишнюю привязку, в том числе у Lava.
+            logger.warning(
+                'Lava: у пользователя уже есть живая подписка на тариф — отменяем лишнюю привязку карты',
+                order_id=record.order_id,
+                subscription_id=subscription.id,
+                alive_subscription_id=alive_duplicate.id,
+            )
+            await self.cancel_lava_recurrent_subscription(db, local_id=record.id)
+            return False
 
         await _lock_subscription_row(db, subscription)
         # Оверлей грейса, осевший в подписке, — не её срок (как в ветке CHARGE_SUCCESS).

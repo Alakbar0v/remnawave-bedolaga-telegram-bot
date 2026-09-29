@@ -988,6 +988,22 @@ class AntilopayPaymentMixin:
             logger.error('Antilopay: подписка не найдена при активации триала', order_id=record.order_id)
             return False
 
+        from app.database.crud.subscription import get_other_alive_subscription_for_tariff
+
+        alive_duplicate = await get_other_alive_subscription_for_tariff(db, subscription)
+        if alive_duplicate is not None:
+            # Повторный клик оформил вторую привязку, пока первая уже выдала триал:
+            # активация упала бы на uq_subscriptions_user_tariff_active и (без отката)
+            # ломала мониторинг. Гасим лишнюю привязку, в том числе у провайдера.
+            logger.warning(
+                'Antilopay: у пользователя уже есть живая подписка на тариф — отменяем лишнюю привязку СБП',
+                order_id=record.order_id,
+                subscription_id=subscription.id,
+                alive_subscription_id=alive_duplicate.id,
+            )
+            await self.cancel_antilopay_subscription_record(db, record)
+            return False
+
         await _lock_subscription_row(db, subscription)
         await undo_grace_overlay_echo(db, subscription)
 
@@ -1028,24 +1044,35 @@ class AntilopayPaymentMixin:
                 )
 
         subscription_id_for_log = subscription.id
+        user_id_for_log = record.user_id
+        panel_user = None
         try:
             from app.services.subscription_service import SubscriptionService
 
             # Новый пользователь ещё не заведён в панели — нужен create, а не update.
-            await SubscriptionService().create_remnawave_user(db, subscription)
+            panel_user = await SubscriptionService().create_remnawave_user(db, subscription)
         except Exception as sync_error:  # best-effort: активация уже в БД
             logger.error(
                 'Не удалось создать пользователя RemnaWave после активации триала Antilopay',
                 error=str(sync_error),
                 subscription_id=subscription_id_for_log,
             )
+        if panel_user is None:
+            # create_remnawave_user глотает ошибки панели и возвращает None — тоже ретраим.
             from app.services.remnawave_retry_queue import remnawave_retry_queue
 
             remnawave_retry_queue.enqueue(
                 subscription_id=subscription_id_for_log,
-                user_id=record.user_id,
+                user_id=user_id_for_log,
                 action='create',
             )
+            # Сбой create откатывает сессию и «протухают» ORM-объекты — вызывающим
+            # (реконсилер) они нужны дальше, иначе MissingGreenlet при чтении полей.
+            try:
+                await db.refresh(record)
+                await db.refresh(subscription)
+            except Exception:  # best-effort: активация уже в БД
+                pass
         return True
 
     async def _notify_antilopay_recurring(self, db: AsyncSession, record: Any, kind: str) -> None:

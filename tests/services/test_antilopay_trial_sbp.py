@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy import text
 
 from app.config import settings
 from app.database.crud import antilopay_subscription as sub_crud
 from app.database.models import (
     AntilopayPayment,
     AntilopaySubscription,
+    Base,
     GraceAccessSessionModel,
     PromoGroup,
     Subscription,
@@ -24,6 +26,10 @@ from app.database.models import (
     UserPromoGroup,
     UserStatus,
     tariff_promo_groups,
+)
+from app.services import (
+    remnawave_retry_queue as retry_queue_module,
+    subscription_service as subscription_service_module,
 )
 from app.services.payment import antilopay as antilopay_module
 from tests.fixtures.sqlite_memory import memory_session
@@ -42,6 +48,19 @@ TABLES = (
     Transaction.__table__,
     GraceAccessSessionModel.__table__,
 )
+
+
+@pytest.fixture(autouse=True)
+def panel_create(monkeypatch):
+    """Панель RemnaWave в тестах не настроена: create_remnawave_user мокаем, очередь ретраев — тоже."""
+    create = AsyncMock(return_value=SimpleNamespace(id=1))
+    update = AsyncMock(return_value=SimpleNamespace(id=1))
+    enqueue = MagicMock()
+    monkeypatch.setattr(subscription_service_module.SubscriptionService, 'create_remnawave_user', create)
+    monkeypatch.setattr(subscription_service_module.SubscriptionService, 'update_remnawave_user', update)
+    monkeypatch.setattr(retry_queue_module.remnawave_retry_queue, 'enqueue', enqueue)
+    return SimpleNamespace(create=create, update=update, enqueue=enqueue)
+
 
 FREE_DAYS = 3
 PAYMENT_ID = 'APAY-BIND-1'
@@ -194,6 +213,93 @@ async def test_binding_callback_activates_trial_once(monkeypatch):
         assert await agent.process_antilopay_callback(db, _binding(order_id)) is True
         await db.refresh(subscription)
         assert subscription.end_date == first_end
+
+
+async def test_trial_activation_creates_panel_user_not_update(monkeypatch, panel_create):
+    """Новый пользователь ещё не заведён в панели: нужен create, update дал бы «RemnaWave id не найден»."""
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription = await _seed(db)
+        agent, _ = _agent(monkeypatch)
+        order_id = await _bind(db, agent, user, tariff, subscription)
+
+        assert await agent.process_antilopay_callback(db, _binding(order_id)) is True
+
+        panel_create.create.assert_awaited_once()
+        assert panel_create.create.await_args.args[1].id == subscription.id
+        panel_create.update.assert_not_awaited()
+        panel_create.enqueue.assert_not_called()
+
+
+async def test_trial_activation_enqueues_retry_when_panel_create_returns_none(monkeypatch, panel_create):
+    """create_remnawave_user глотает ошибки панели и возвращает None — создание уходит в очередь ретраев."""
+    panel_create.create.return_value = None
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription = await _seed(db)
+        user_id, subscription_id = user.id, subscription.id
+        agent, _ = _agent(monkeypatch)
+        order_id = await _bind(db, agent, user, tariff, subscription)
+
+        assert await agent.process_antilopay_callback(db, _binding(order_id)) is True
+
+        panel_create.enqueue.assert_called_once_with(subscription_id=subscription_id, user_id=user_id, action='create')
+        record = await sub_crud.get_antilopay_subscription_by_order_id(db, order_id)
+        assert record.status == 'ACTIVE'
+
+
+async def test_trial_activation_enqueues_retry_when_panel_create_raises(monkeypatch, panel_create):
+    panel_create.create.side_effect = RuntimeError('panel down')
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription = await _seed(db)
+        user_id, subscription_id = user.id, subscription.id
+        agent, _ = _agent(monkeypatch)
+        order_id = await _bind(db, agent, user, tariff, subscription)
+
+        assert await agent.process_antilopay_callback(db, _binding(order_id)) is True
+
+        panel_create.enqueue.assert_called_once_with(subscription_id=subscription_id, user_id=user_id, action='create')
+        # Сбой панели не откатывает уже выданный триал
+        await db.refresh(subscription)
+        assert subscription.status == SubscriptionStatus.ACTIVE.value
+
+
+async def test_binding_callback_cancels_duplicate_binding_when_alive_subscription_exists(monkeypatch, panel_create):
+    """Повторный клик: вторая привязка приходит, когда первая уже выдала триал (uq_subscriptions_user_tariff_active)."""
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription = await _seed(db)
+        # SQLite делает индекс из models полным (postgresql_where игнорируется): пересоздаём частичным, как в проде.
+        await db.execute(text('DROP INDEX uq_subscriptions_user_tariff_active'))
+        await db.execute(
+            text(
+                'CREATE UNIQUE INDEX uq_subscriptions_user_tariff_active ON subscriptions (user_id, tariff_id) '
+                "WHERE tariff_id IS NOT NULL AND status IN ('active', 'trial', 'limited')"
+            )
+        )
+        now = datetime.now(UTC)
+        alive = Subscription(
+            user_id=user.id,
+            tariff_id=tariff.id,
+            status=SubscriptionStatus.ACTIVE.value,
+            is_trial=True,
+            start_date=now,
+            end_date=now + timedelta(days=FREE_DAYS),
+            remnawave_short_id='shortalive',
+        )
+        db.add(alive)
+        await db.commit()
+        subscription_id = subscription.id
+        agent, service = _agent(monkeypatch)
+        order_id = await _bind(db, agent, user, tariff, subscription)
+
+        assert await agent.process_antilopay_callback(db, _binding(order_id)) is True
+
+        service.cancel_recurrent.assert_awaited_once()
+        record = await sub_crud.get_antilopay_subscription_by_order_id(db, order_id)
+        assert record.status == 'CANCELLED'
+        assert record.trial_activated_at is None
+        sub = await db.get(Subscription, subscription_id)
+        assert sub.status == SubscriptionStatus.PENDING.value
+        # Лишней учётки в панели не создаём
+        panel_create.create.assert_not_awaited()
 
 
 async def test_binding_callback_never_credits_balance(monkeypatch):
@@ -399,3 +505,15 @@ async def test_history_sync_credits_missed_charge_once_and_skips_binding(monkeyp
         from sqlalchemy import select
 
         assert len((await db.execute(select(Transaction))).scalars().all()) == 1
+
+
+async def test_deleting_subscription_does_not_null_out_antilopay_record_fk(monkeypatch):
+    """FK уже ON DELETE CASCADE: ORM не должен сам обнулять NOT NULL subscription_id (админ-удаление падало)."""
+    # Полный набор таблиц: удаление подписки поднимает всех её зависимых (discount_offers и др.)
+    async with memory_session(monkeypatch, Base.metadata.sorted_tables) as db:
+        user, tariff, subscription = await _seed(db)
+        agent, _ = _agent(monkeypatch)
+        await _bind(db, agent, user, tariff, subscription)
+
+        await db.delete(subscription)
+        await db.commit()  # раньше: NotNullViolation на UPDATE antilopay_subscriptions SET subscription_id=NULL

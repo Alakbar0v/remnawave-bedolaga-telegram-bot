@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import text
 
 from app.config import settings
 from app.database.models import (
@@ -715,6 +716,45 @@ async def test_activated_webhook_grants_trial_access(monkeypatch):
         assert record.trial_activated_at is not None
         # Верификационная сумма — не оплата подписки, транзакция не создаётся
         assert record.charges_success == 0
+
+
+async def test_activated_webhook_cancels_duplicate_binding_when_alive_subscription_exists(monkeypatch):
+    """Вторая привязка карты при уже выданном триале: активация упала бы на uq_subscriptions_user_tariff_active."""
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, tariff, subscription, record = await _seed_trial_pending(db, free_days=3)
+        # SQLite делает индекс из models полным (postgresql_where игнорируется): пересоздаём частичным, как в проде.
+        await db.execute(text('DROP INDEX uq_subscriptions_user_tariff_active'))
+        await db.execute(
+            text(
+                'CREATE UNIQUE INDEX uq_subscriptions_user_tariff_active ON subscriptions (user_id, tariff_id) '
+                "WHERE tariff_id IS NOT NULL AND status IN ('active', 'trial', 'limited')"
+            )
+        )
+        now = datetime.now(UTC)
+        alive = Subscription(
+            user_id=user.id,
+            tariff_id=tariff.id,
+            status=SubscriptionStatus.ACTIVE.value,
+            is_trial=True,
+            start_date=now,
+            end_date=now + timedelta(days=3),
+            remnawave_short_id='shortalive',
+        )
+        db.add(alive)
+        await db.commit()
+        order_id, subscription_id = record.order_id, subscription.id
+        agent, service = _agent(monkeypatch)
+        monkeypatch.setattr(settings, 'RESET_TRAFFIC_ON_PAYMENT', False)
+
+        assert await agent.process_lava_subscription_callback(db, _activated(order_id)) is True
+
+        service.unsubscribe_recurrent.assert_awaited_once()
+        await db.refresh(record)
+        assert record.status == 'CANCELLED'
+        assert record.trial_activated_at is None
+        # Черновик не активируем: иначе IntegrityError по уникальному индексу
+        sub = await db.get(Subscription, subscription_id)
+        assert sub.status == SubscriptionStatus.PENDING.value
 
 
 async def test_repeated_activated_webhook_does_not_extend_twice(monkeypatch):

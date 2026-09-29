@@ -718,7 +718,7 @@ class PlategaSubscription(Base):
     updated_at = Column(AwareDateTime(), default=func.now(), onupdate=func.now())
 
     user = relationship('User', backref='platega_subscriptions')
-    subscription = relationship('Subscription', backref='platega_subscriptions')
+    subscription = relationship('Subscription', backref=backref('platega_subscriptions', passive_deletes=True))
 
     __table_args__ = (
         Index('ix_platega_subscriptions_user_active', 'user_id', 'status'),
@@ -783,7 +783,7 @@ class LavaSubscription(Base):
     updated_at = Column(AwareDateTime(), default=func.now(), onupdate=func.now())
 
     user = relationship('User', backref='lava_subscriptions')
-    subscription = relationship('Subscription', backref='lava_subscriptions')
+    subscription = relationship('Subscription', backref=backref('lava_subscriptions', passive_deletes=True))
 
     __table_args__ = (
         Index('ix_lava_subscriptions_user_active', 'user_id', 'status'),
@@ -847,7 +847,7 @@ class AntilopaySubscription(Base):
     updated_at = Column(AwareDateTime(), default=func.now(), onupdate=func.now())
 
     user = relationship('User', backref='antilopay_subscriptions')
-    subscription = relationship('Subscription', backref='antilopay_subscriptions')
+    subscription = relationship('Subscription', backref=backref('antilopay_subscriptions', passive_deletes=True))
 
     __table_args__ = (
         Index('ix_antilopay_subscriptions_user_active', 'user_id', 'status'),

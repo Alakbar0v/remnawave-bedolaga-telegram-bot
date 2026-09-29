@@ -573,6 +573,28 @@ async def _convert_trial_subscription_to_paid(
     return subscription
 
 
+async def get_other_alive_subscription_for_tariff(db: AsyncSession, subscription: Subscription) -> Subscription | None:
+    """Другая живая подписка того же пользователя на тот же тариф (или None).
+
+    Именно такую пару защищает ``uq_subscriptions_user_tariff_active``: активировать
+    вторую строку значит получить ``IntegrityError``. Нужна путям, что переводят
+    черновик в ACTIVE по внешнему событию (callback привязки оплаты, реконсилер).
+    """
+    if subscription.tariff_id is None:
+        return None
+    result = await db.execute(
+        select(Subscription)
+        .where(
+            Subscription.user_id == subscription.user_id,
+            Subscription.tariff_id == subscription.tariff_id,
+            Subscription.id != subscription.id,
+            Subscription.status.in_(_ALIVE_SUBSCRIPTION_STATUSES_TUPLE),
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def _alive_trial_conversion_candidate(
     db: AsyncSession,
     user_id: int,
