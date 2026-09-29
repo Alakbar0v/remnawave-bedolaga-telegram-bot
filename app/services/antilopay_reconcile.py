@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.services.antilopay_service import antilopay_service
 from app.services.antilopay_test_log import test_log  # TEST-LOG: временно, удалить
+from app.services.panel_sync.db_session import rollback_quietly
 
 
 logger = structlog.get_logger(__name__)
@@ -47,7 +48,8 @@ async def reconcile_antilopay_subscriptions(db: AsyncSession, bot: Any = None) -
         logger.warning('Ошибка реконсиляции Antilopay-подписок', error=error)
         return
 
-    for record in records:
+    # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
+    for record_id, record in [(item.id, item) for item in records]:
         try:
             remote_missing = True
             remote_status: str | None = None
@@ -133,9 +135,10 @@ async def reconcile_antilopay_subscriptions(db: AsyncSession, bot: Any = None) -
                 if record.next_charge_at is None or record.next_charge_at.date() != next_payment.date():
                     await sub_crud.update_antilopay_subscription(db, record, next_charge_at=next_payment)
         except Exception as record_error:
+            await rollback_quietly(db)
             logger.warning(
                 'Не удалось реконсилировать Antilopay-подписку',
-                local_id=getattr(record, 'id', None),
+                local_id=record_id,
                 error=record_error,
             )
 
@@ -148,7 +151,8 @@ async def reconcile_antilopay_subscriptions(db: AsyncSession, bot: Any = None) -
         logger.warning('Ошибка свипа отменённых Antilopay-подписок', error=error)
         return
 
-    for record in cancelled:
+    # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
+    for record_id, record in [(item.id, item) for item in cancelled]:
         try:
             remote = await antilopay_service.check_recurrent(recurrent_id=record.recurrent_id)
             remote_status = normalize_remote_status(remote.get('status')) if remote else None
@@ -162,9 +166,10 @@ async def reconcile_antilopay_subscriptions(db: AsyncSession, bot: Any = None) -
                 remote_status=remote_status,
             )
         except Exception as record_error:
+            await rollback_quietly(db)
             logger.warning(
                 'Не удалось досверить отменённую Antilopay-подписку',
-                local_id=getattr(record, 'id', None),
+                local_id=record_id,
                 error=record_error,
             )
 

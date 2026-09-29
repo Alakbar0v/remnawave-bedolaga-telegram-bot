@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import func, select
 
 from app.config import Settings, settings
 from app.database.crud import antilopay_subscription as sub_crud
@@ -221,6 +222,32 @@ async def test_reconcile_recovers_lost_binding_callback_and_grants_trial_once(mo
         await reconcile_module.reconcile_antilopay_subscriptions(db)
         await db.refresh(subscription)
         assert subscription.end_date == first_end
+
+
+async def test_reconcile_failure_rolls_back_so_session_stays_usable(monkeypatch):
+    """Сбой flush при активации не должен «отравлять» общую сессию мониторинга (PendingRollbackError)."""
+    async with memory_session(monkeypatch, TABLES) as db:
+        user, subscription, record = await _seed_record(db, status='PENDING', recurrent_id=None, free_days=3)
+        subscription.status = SubscriptionStatus.PENDING.value
+        subscription.is_trial = True
+        await db.commit()
+        telegram_id = user.telegram_id
+        _patch(
+            monkeypatch,
+            check_recurrent=AsyncMock(),
+            check_payment=AsyncMock(return_value={'code': 0, 'status': 'SUCCESS', 'recurrent_id': 'rec-9'}),
+        )
+
+        async def poisoned_flush(self, db, record):
+            db.add(User(telegram_id=telegram_id, username='dup', status=UserStatus.ACTIVE.value))
+            await db.flush()  # UNIQUE(telegram_id) → сессия в состоянии «нужен rollback»
+
+        monkeypatch.setattr(antilopay_module._AntilopayRecurrentAgent, '_activate_antilopay_trial', poisoned_flush)
+
+        await reconcile_module.reconcile_antilopay_subscriptions(db)  # не бросает
+
+        # Следующий шаг цикла мониторинга должен уметь читать из той же сессии
+        assert (await db.execute(select(func.count()).select_from(User))).scalar_one() == 1
 
 
 async def test_reconcile_repeats_cancel_when_remote_still_active(monkeypatch):

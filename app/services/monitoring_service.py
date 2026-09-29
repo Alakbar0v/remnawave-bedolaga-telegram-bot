@@ -74,6 +74,7 @@ from app.services.panel_sync import (
     read_panel_user,
     resolve_panel_identity,
 )
+from app.services.panel_sync.db_session import rollback_quietly
 from app.services.promo_offer_service import promo_offer_service
 from app.services.subscription_service import SubscriptionService
 from app.utils.cache import cache
@@ -2972,7 +2973,8 @@ class MonitoringService:
 
             records = await sub_crud.list_platega_subscriptions_by_statuses(db, ['PENDING', 'ACTIVE', 'PAST_DUE'])
 
-            for record in records:
+            # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
+            for record_id, record in [(item.id, item) for item in records]:
                 try:
                     if record.platega_subscription_id:
                         remote, http_status = await service.get_subscription_status(record.platega_subscription_id)
@@ -3017,9 +3019,10 @@ class MonitoringService:
 
                         await replay_missed_platega_charges(db, record, remote)
                 except Exception as record_error:
+                    await rollback_quietly(db)
                     logger.warning(
                         'Не удалось реконсилировать Platega-подписку',
-                        local_id=getattr(record, 'id', None),
+                        local_id=record_id,
                         error=record_error,
                     )
 
@@ -3029,7 +3032,8 @@ class MonitoringService:
             cancelled_records = await sub_crud.list_recently_cancelled_platega_subscriptions(
                 db, datetime.now(UTC) - timedelta(days=30)
             )
-            for record in cancelled_records:
+            # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
+            for record_id, record in [(item.id, item) for item in cancelled_records]:
                 try:
                     remote = await service.get_subscription(record.platega_subscription_id)
                     remote_status = (
@@ -3048,12 +3052,14 @@ class MonitoringService:
                         cancel_confirmed=cancel_result is not None,
                     )
                 except Exception as record_error:
+                    await rollback_quietly(db)
                     logger.warning(
                         'Не удалось досверить отменённую Platega-подписку',
-                        local_id=getattr(record, 'id', None),
+                        local_id=record_id,
                         error=record_error,
                     )
         except Exception as e:
+            await rollback_quietly(db)
             logger.warning('Ошибка реконсиляции Platega-подписок', error=e)
 
     async def _reconcile_lava_subscriptions(self, db: AsyncSession):
@@ -3084,7 +3090,8 @@ class MonitoringService:
 
             records = await sub_crud.list_lava_subscriptions_by_statuses(db, ['PENDING', 'ACTIVE', 'PAST_DUE'])
 
-            for record in records:
+            # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
+            for record_id, record in [(item.id, item) for item in records]:
                 try:
                     # Нет ни одного идентификатора — провайдер о подписке точно
                     # не знает (subscribe не дошёл).
@@ -3150,9 +3157,10 @@ class MonitoringService:
                             remote_status=remote_status,
                         )
                 except Exception as record_error:
+                    await rollback_quietly(db)
                     logger.warning(
                         'Не удалось реконсилировать Lava-подписку',
-                        local_id=getattr(record, 'id', None),
+                        local_id=record_id,
                         error=record_error,
                     )
 
@@ -3161,7 +3169,8 @@ class MonitoringService:
             cancelled_records = await sub_crud.list_recently_cancelled_lava_subscriptions(
                 db, datetime.now(UTC) - timedelta(days=30)
             )
-            for record in cancelled_records:
+            # Идентификаторы — заранее: после отката ORM-объекты протухают, и чтение record.id упало бы.
+            for record_id, record in [(item.id, item) for item in cancelled_records]:
                 try:
                     payload = await lava_service.get_recurrent_subscription_status(
                         subscription_id=record.lava_subscription_id,
@@ -3177,12 +3186,14 @@ class MonitoringService:
                         remote_status=remote_status,
                     )
                 except Exception as record_error:
+                    await rollback_quietly(db)
                     logger.warning(
                         'Не удалось досверить отменённую Lava-подписку',
-                        local_id=getattr(record, 'id', None),
+                        local_id=record_id,
                         error=record_error,
                     )
         except Exception as e:
+            await rollback_quietly(db)
             logger.warning('Ошибка реконсиляции Lava-подписок', error=e)
 
     async def _reconcile_antilopay_subscriptions(self, db: AsyncSession):
@@ -3192,6 +3203,7 @@ class MonitoringService:
 
             await reconcile_antilopay_subscriptions(db, bot=self.bot)
         except Exception as e:
+            await rollback_quietly(db)
             logger.warning('Ошибка реконсиляции Antilopay-подписок', error=e)
 
     async def _check_ticket_sla(self, db: AsyncSession):
