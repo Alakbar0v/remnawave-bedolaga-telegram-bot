@@ -367,6 +367,7 @@ async def get_campaign_statistics(
             Transaction.user_id,
             Transaction.amount_kopeks,
             Transaction.created_at,
+            Transaction.payment_method,
         )
         .where(
             Transaction.user_id.in_(select(registrations_subquery.c.user_id)),
@@ -378,6 +379,7 @@ async def get_campaign_statistics(
     subscription_payments = subscription_payments_rows.all()
 
     subscription_payments_total = 0
+    gateway_subscription_payments_total = 0
     paid_users_from_transactions = set()
     conversion_user_ids = set()
     first_payment_amount_by_user: dict[int, int] = {}
@@ -389,10 +391,12 @@ async def get_campaign_statistics(
         first_payment_amount_by_user[user_id] = amount_value
         first_payment_time_by_user[user_id] = converted_at
 
-    for user_id, amount_kopeks, created_at in subscription_payments:
+    for user_id, amount_kopeks, created_at, payment_method in subscription_payments:
         amount_value = abs(int(amount_kopeks or 0))
         subscription_payments_total += amount_value
         paid_users_from_transactions.add(user_id)
+        if payment_method in REAL_PAYMENT_METHODS:
+            gateway_subscription_payments_total += amount_value
 
         if user_id not in first_payment_amount_by_user:
             first_payment_amount_by_user[user_id] = amount_value
@@ -405,8 +409,10 @@ async def get_campaign_statistics(
                 first_payment_amount_by_user[user_id] = amount_value
                 first_payment_time_by_user[user_id] = created_at
 
-    # Revenue = only real deposits (exclude bonus-funded subscription spending)
-    total_revenue = deposits_total
+    # Revenue = real deposits + subscription payments charged straight through a gateway
+    # (paid trial, recurring auto-renewal: no DEPOSIT row exists for these, so no double count).
+    # Balance-funded purchases (payment_method=BALANCE) stay excluded: money was counted at deposit.
+    total_revenue = deposits_total + gateway_subscription_payments_total
 
     paid_user_ids = set(paid_users_from_transactions)
     paid_user_ids.update(conversion_user_ids)
