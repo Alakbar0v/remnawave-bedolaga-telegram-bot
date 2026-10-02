@@ -130,6 +130,8 @@ from .autopay import (
     handle_antilopay_recurring_cancel,
     handle_antilopay_recurring_menu,
     handle_autopay_menu,
+    handle_cashera_recurring_cancel,
+    handle_cashera_recurring_enable,
     handle_lava_recurring_cancel,
     handle_lava_recurring_menu,
     handle_sbp_recurring_cancel,
@@ -4661,6 +4663,9 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(handle_lava_recurring_menu, F.data == 'lava_recurring_menu')
 
     dp.callback_query.register(handle_lava_recurring_cancel, F.data == 'lava_recurring_cancel')
+    dp.callback_query.register(handle_cashera_recurring_enable, F.data == 'cashera_recurring_enable')
+
+    dp.callback_query.register(handle_cashera_recurring_cancel, F.data == 'cashera_recurring_cancel')
 
     dp.callback_query.register(handle_subscription_config_back, F.data == 'subscription_config_back')
 

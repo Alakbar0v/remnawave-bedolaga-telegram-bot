@@ -23,6 +23,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.database.models import (
     AntilopaySubscription,
+    CasheraSubscription,
     DiscountOffer,
     LavaSubscription,
     PlategaSubscription,
@@ -50,6 +51,7 @@ TABLES = (
     PlategaSubscription.__table__,
     LavaSubscription.__table__,
     AntilopaySubscription.__table__,
+    CasheraSubscription.__table__,
     SentNotification.__table__,
     SubscriptionEvent.__table__,
     SubscriptionServer.__table__,
@@ -215,6 +217,9 @@ class _PanelSpy:
             'app.services.payment.platega.cancel_platega_recurring_for_subscription_safe', _record('platega')
         )
         monkeypatch.setattr('app.services.payment.lava.cancel_lava_recurring_for_subscription_safe', _record('lava'))
+        monkeypatch.setattr(
+            'app.services.cashera_recurring_cancel.cancel_cashera_recurring_for_subscription_safe', _record('cashera')
+        )
         monkeypatch.setattr(deletion, 'decrement_subscription_server_counts', fake_decrement)
 
 
@@ -342,7 +347,7 @@ async def test_step_order_is_pinned(monkeypatch):
 
         await deletion.delete_subscription_record(db, target, deleted_by='user')
 
-    assert spy.order == ['grace', 'platega', 'lava', 'grace', 'panel_delete', 'decrement']
+    assert spy.order == ['grace', 'platega', 'lava', 'cashera', 'grace', 'panel_delete', 'decrement']
 
 
 @pytest.mark.asyncio

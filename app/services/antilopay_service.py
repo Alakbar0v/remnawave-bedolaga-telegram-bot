@@ -64,8 +64,8 @@ class AntilopayService:
             data = json.loads(raw)
         except ValueError:
             # HTML-страница (WAF/блокировка/техработы): CSS и теги в лог не нужны — только видимый текст.
-            visible = re.sub(r'(?is)<(style|script)[^>]*>.*?</\1>', ' ', raw)
-            visible = re.sub(r'(?s)<[^>]+>', ' ', visible)
+            visible = re.sub(r'(?is)<(style|script)[^<>]*>.*?</\1>', ' ', raw)
+            visible = re.sub(r'(?s)<[^<>]+>', ' ', visible)
             visible = re.sub(r'\s+', ' ', visible).strip()
             # TEST-LOG: временно, удалить вместе с antilopay_test_log
             test_log(

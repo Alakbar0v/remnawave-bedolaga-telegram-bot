@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock
 
 from app.database.models import (
     AntilopaySubscription,
+    CasheraSubscription,
     LavaSubscription,
     PlategaSubscription,
     PromoGroup,
@@ -45,6 +46,7 @@ TABLES = (
     PlategaSubscription.__table__,
     LavaSubscription.__table__,
     AntilopaySubscription.__table__,
+    CasheraSubscription.__table__,
 )
 
 BASE_PRICE = 30000  # 300 ₽ за 30 дней

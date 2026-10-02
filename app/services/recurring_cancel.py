@@ -21,13 +21,14 @@ async def cancel_all_recurring_for_subscription_safe(
     *,
     commit: bool = True,
 ) -> None:
-    """Отменяет СБП/карточные рекурренты Platega, Lava и Antilopay, привязанные к подписке.
+    """Отменяет СБП/карточные рекурренты Platega, Lava, Antilopay и Cashera, привязанные к подписке.
 
     Best-effort и никогда не бросает: сбой одного провайдера не мешает отменить остальных
     и не блокирует удаление подписки. Идемпотентна. ``commit=False`` — вызывающий держит
     свою транзакцию (отмена войдёт в неё). Не гейтится флагами фич: отмена — операция
     безопасности, выключенная фича не останавливает списания на стороне провайдера.
     """
+    from app.services.cashera_recurring_cancel import cancel_cashera_recurring_for_subscription_safe
     from app.services.payment.antilopay import cancel_antilopay_recurring_for_subscription_safe
     from app.services.payment.lava import cancel_lava_recurring_for_subscription_safe
     from app.services.payment.platega import cancel_platega_recurring_for_subscription_safe
@@ -36,6 +37,7 @@ async def cancel_all_recurring_for_subscription_safe(
         ('platega', cancel_platega_recurring_for_subscription_safe),
         ('lava', cancel_lava_recurring_for_subscription_safe),
         ('antilopay', cancel_antilopay_recurring_for_subscription_safe),
+        ('cashera', cancel_cashera_recurring_for_subscription_safe),
     ):
         try:
             if commit:

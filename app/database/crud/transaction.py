@@ -616,6 +616,9 @@ async def create_unique_tribute_transaction(
     Returns ``(transaction, created)``. When ``created`` is False the payment was
     already processed (a replayed webhook) and the caller MUST NOT credit the balance
     again.
+
+    Без коммита (flush) — вызывающий коммитит транзакцию вместе с зачислением
+    и после коммита вызывает ``emit_transaction_side_effects``.
     """
     external_id = f'donation_{payment_id}'
 
@@ -651,5 +654,6 @@ async def create_unique_tribute_transaction(
         payment_method=PaymentMethod.TRIBUTE,
         external_id=external_id,
         is_completed=True,
+        commit=False,
     )
     return transaction, True

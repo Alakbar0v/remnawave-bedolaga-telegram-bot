@@ -374,6 +374,15 @@ def get_tariff_confirm_keyboard(
     # Lava-автопродление скрыто из списка способов оплаты (см. _sbp_purchase_rows) —
     # is_lava_recurrent_enabled() при этом не выключен: он всё ещё нужен триалу
     # (start_lava_trial) и управлению уже оформленными Lava-подписками в кабинете.
+    if settings.is_cashera_recurrent_enabled():
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('CASHERA_PURCHASE_BUTTON', '⚡ Оформить с автооплатой Cashera'),
+                    callback_data=f'tariff_cashera:{tariff_id}',
+                )
+            ]
+        )
     buttons.append([InlineKeyboardButton(text=texts.BACK, callback_data=f'tariff_select:{tariff_id}')])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -487,6 +496,15 @@ def _sbp_purchase_rows(tariff_id: int, texts) -> list[list[InlineKeyboardButton]
             ]
         )
     # Lava-автопродление скрыто из списка способов оплаты (см. get_tariff_confirm_keyboard).
+    if settings.is_cashera_recurrent_enabled():
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('CASHERA_PURCHASE_BUTTON', '⚡ Оформить с автооплатой Cashera'),
+                    callback_data=f'tariff_cashera:{tariff_id}',
+                )
+            ]
+        )
     return rows
 
 
@@ -552,6 +570,15 @@ def get_daily_tariff_confirm_keyboard(
                 InlineKeyboardButton(
                     text=texts.t('LAVA_PURCHASE_BUTTON', '⚡ Оформить с автооплатой Lava'),
                     callback_data=f'tariff_lava:{tariff_id}',
+                )
+            ]
+        )
+    if settings.is_cashera_recurrent_enabled():
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('CASHERA_PURCHASE_BUTTON', '⚡ Оформить с автооплатой Cashera'),
+                    callback_data=f'tariff_cashera:{tariff_id}',
                 )
             ]
         )
@@ -4945,6 +4972,59 @@ async def purchase_tariff_with_lava(
 
 
 @error_handler
+async def purchase_tariff_with_cashera(
+    callback: types.CallbackQuery,
+    db_user: User,
+    db: AsyncSession,
+):
+    """Оформление подписки на тариф через автопродление Cashera.
+
+    Зеркало ``purchase_tariff_with_lava``: клиент подтверждает подписку по ссылке
+    Cashera, первое списание оживляет подписку (для нового тарифа — заготовка).
+    Каденс — по периоду тарифа, как у Platega.
+    """
+    texts = get_texts(db_user.language)
+    tariff_id = int(callback.data.split(':')[1])
+
+    tariff = await get_tariff_by_id(db, tariff_id)
+    if not tariff or not tariff.is_active:
+        await callback.answer(texts.t('TARIFF_PURCHASE_UNAVAILABLE', 'Тариф недоступен'), show_alert=True)
+        return
+
+    from app.services.payment.cashera import purchase_tariff_with_cashera_recurring
+
+    try:
+        result = await purchase_tariff_with_cashera_recurring(db, user=db_user, tariff=tariff)
+    except ValueError as error:
+        await callback.answer(str(error), show_alert=True)
+        return
+    except Exception:
+        await callback.answer(
+            texts.t(
+                'CASHERA_RECURRING_ENABLE_ERROR', '❌ Не удалось подключить автопродление Cashera. Попробуйте позже.'
+            ),
+            show_alert=True,
+        )
+        return
+
+    redirect_url = result.get('redirect_url')
+    text = texts.t(
+        'CASHERA_RECURRING_ENABLE_SUCCESS',
+        '⚡ <b>Автопродление Cashera</b>\n\nПодтвердите автосписания по кнопке ниже.\n'
+        'После подтверждения и первого списания подписка продлится автоматически.',
+    )
+
+    buttons = []
+    if redirect_url:
+        buttons.append(
+            [InlineKeyboardButton(text=texts.t('CASHERA_RECURRING_PAY_BUTTON', '💳 Подтвердить'), url=redirect_url)]
+        )
+    buttons.append([InlineKeyboardButton(text=texts.BACK, callback_data='tariff_list')])
+
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+
+@error_handler
 async def confirm_instant_switch(
     callback: types.CallbackQuery,
     db_user: User,
@@ -5664,6 +5744,7 @@ def register_tariff_purchase_handlers(dp: Dispatcher):
     # Оформление через СБП-автопродление Platega (альтернатива балансу)
     dp.callback_query.register(purchase_tariff_with_sbp, F.data.startswith('tariff_sbp:'))
     dp.callback_query.register(purchase_tariff_with_lava, F.data.startswith('tariff_lava:'))
+    dp.callback_query.register(purchase_tariff_with_cashera, F.data.startswith('tariff_cashera:'))
 
     # Подтверждение покупки суточного тарифа
     dp.callback_query.register(confirm_daily_tariff_purchase, F.data.startswith('daily_tariff_confirm:'))
