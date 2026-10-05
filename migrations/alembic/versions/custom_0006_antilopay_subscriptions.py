@@ -4,16 +4,16 @@
 и ``delay`` = длительность триала. Продуктов у Antilopay нет — сумма и шаг продления
 копируются из тарифа на момент оформления.
 
-Revision ID: 0129
-Revises: 0128
+Revision ID: custom_0006
+Revises: custom_0005
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 
-revision = '0129'
-down_revision = '0128'
+revision = 'custom_0006'
+down_revision = 'custom_0005'
 branch_labels = None
 depends_on = None
 
@@ -21,6 +21,9 @@ _ALIVE = "('PENDING', 'ACTIVE', 'PAST_DUE')"
 
 
 def upgrade() -> None:
+    # Идемпотентно: миграция раньше имела ID 0129 и могла быть уже применена.
+    if sa.inspect(op.get_bind()).has_table('antilopay_subscriptions'):
+        return
     op.create_table(
         'antilopay_subscriptions',
         sa.Column('id', sa.Integer(), primary_key=True),
