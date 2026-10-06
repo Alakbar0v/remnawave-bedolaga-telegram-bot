@@ -3104,12 +3104,6 @@
 - `migrations/alembic/versions/0128_dpichecker_actions.py` — Python-модуль
   Классы: нет
   Функции: `upgrade`, `downgrade`
-- `migrations/alembic/versions/0128_lava_paid_trial.py` — Python-модуль
-  Классы: нет
-  Функции: `upgrade`, `downgrade`
-- `migrations/alembic/versions/0129_antilopay_subscriptions.py` — Python-модуль
-  Классы: нет
-  Функции: `upgrade`, `downgrade`
 - `migrations/alembic/versions/0129_broadcast_audience.py` — Python-модуль
   Классы: нет
   Функции: `upgrade`, `downgrade`
@@ -3129,6 +3123,12 @@
   Классы: нет
   Функции: `upgrade`, `downgrade`
 - `migrations/alembic/versions/custom_0004_guest_purchase_idempotency.py` — Python-модуль
+  Классы: нет
+  Функции: `upgrade`, `downgrade`
+- `migrations/alembic/versions/custom_0005_lava_paid_trial.py` — Python-модуль
+  Классы: нет
+  Функции: `upgrade`, `downgrade`
+- `migrations/alembic/versions/custom_0006_antilopay_subscriptions.py` — Python-модуль
   Классы: нет
   Функции: `upgrade`, `downgrade`
 - `migrations/alembic/versions/custom_merge_0106.py` — Python-модуль
