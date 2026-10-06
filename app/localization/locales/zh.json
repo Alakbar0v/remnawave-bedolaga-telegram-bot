@@ -1232,6 +1232,7 @@
   "PERIOD_60_DAYS": "📅60天-{settings.format_price(settings.PRICE_60_DAYS)}",
   "PERIOD_90_DAYS": "📅90天-{settings.format_price(settings.PRICE_90_DAYS)}",
   "POST_REGISTRATION_TRIAL_BUTTON": "🚀 仅需1₽连接",
+  "POST_REGISTRATION_FREE_TRIAL_BUTTON": "🚀免费连接🚀",
   "PRIVACY_POLICY_EMPTY_ALERT": "隐私政策尚未填写。",
   "PRIVACY_POLICY_HEADER": "🛡️<b>隐私政策</b>",
   "PRIVACY_POLICY_NOT_AVAILABLE": "隐私政策暂时不可用。",

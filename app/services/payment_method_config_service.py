@@ -621,6 +621,10 @@ async def get_enabled_methods_for_user(
         if not config.is_enabled:
             continue
 
+        # TEMP: Lava/Antilopay скрыты из способов пополнения (TOPUP_HIDE_LAVA_ANTILOPAY)
+        if settings.TOPUP_HIDE_LAVA_ANTILOPAY and method_id in ('lava', 'antilopay'):
+            continue
+
         # Skip if provider not configured in env
         if not method_def.get('is_configured', False):
             continue

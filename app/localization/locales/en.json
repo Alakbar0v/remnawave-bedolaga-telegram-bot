@@ -1296,6 +1296,7 @@
   "PERIOD_60_DAYS": "📅 60 days - {settings.format_price(settings.PRICE_60_DAYS)}",
   "PERIOD_90_DAYS": "📅 90 days - {settings.format_price(settings.PRICE_90_DAYS)}",
   "POST_REGISTRATION_TRIAL_BUTTON": "Connect for just 1₽",
+  "POST_REGISTRATION_FREE_TRIAL_BUTTON": "🚀 Activate free trial 🚀",
   "PRIVACY_POLICY_EMPTY_ALERT": "The privacy policy text has not been provided yet.",
   "PRIVACY_POLICY_HEADER": "🛡️ <b>Privacy policy</b>",
   "PRIVACY_POLICY_NOT_AVAILABLE": "The privacy policy is temporarily unavailable.",

@@ -685,6 +685,90 @@ async def _delete_message_later(bot, chat_id: int, message_id: int, delay: int =
         logger.debug('Не удалось удалить эфемерное сообщение', message_id=message_id, error=str(error))
 
 
+async def _activate_free_trial_by_deeplink(db: AsyncSession, user: 'User', bot: 'Bot | None' = None) -> None:
+    """Бесплатная активация триала по диплинку /start trial (поведение upstream).
+
+    Гейты (длительность, auth_type, использован ли триал) проверяет вызывающий
+    ``_activate_pending_trial``. Платная активация (TRIAL_PAYMENT_ENABLED + цена)
+    этим путём не идёт — rich-меню для неё ведёт на оплату в миниапп.
+    """
+    if settings.is_trial_paid_activation_enabled():
+        return
+
+    try:
+        # Параметры триала: из триального тарифа (is_trial_available / TRIAL_TARIFF_ID),
+        # иначе — из настроек; сквады — из тарифа, иначе случайный триальный сквад.
+        from app.database.crud.server_squad import get_effective_tariff_squad_uuids, get_random_trial_squad_uuid
+        from app.database.crud.subscription import create_trial_subscription
+        from app.database.crud.tariff import get_tariff_by_id, get_trial_tariff
+
+        trial_traffic_limit = settings.TRIAL_TRAFFIC_LIMIT_GB
+        trial_device_limit = settings.TRIAL_DEVICE_LIMIT
+        trial_squads: list[str] = []
+        tariff_id_for_trial = None
+
+        trial_tariff = await get_trial_tariff(db)
+        if not trial_tariff:
+            trial_tariff_id = settings.get_trial_tariff_id()
+            if trial_tariff_id > 0:
+                trial_tariff = await get_tariff_by_id(db, trial_tariff_id)
+        if trial_tariff:
+            trial_traffic_limit = trial_tariff.traffic_limit_gb
+            trial_device_limit = trial_tariff.device_limit
+            trial_squads = await get_effective_tariff_squad_uuids(db, trial_tariff.allowed_squads)
+            tariff_id_for_trial = trial_tariff.id
+        if not trial_squads:
+            trial_squad_uuid = await get_random_trial_squad_uuid(db)
+            trial_squads = [trial_squad_uuid] if trial_squad_uuid else []
+
+        subscription = await create_trial_subscription(
+            db=db,
+            user_id=user.id,
+            duration_days=settings.TRIAL_DURATION_DAYS,
+            traffic_limit_gb=trial_traffic_limit,
+            device_limit=trial_device_limit,
+            connected_squads=trial_squads or None,
+            tariff_id=tariff_id_for_trial,
+        )
+        logger.info('Триал активирован по диплинку rich-меню', user_id=user.id, subscription_id=subscription.id)
+
+        subscription_service = SubscriptionService()
+        panel_user = None
+        try:
+            if subscription_service.is_configured:
+                panel_user = await subscription_service.create_remnawave_user(db, subscription)
+                await db.refresh(subscription)
+        except Exception as error:
+            logger.error('Не удалось создать Remnawave-пользователя для триала по диплинку', error=error)
+        if subscription_service.is_configured and panel_user is None:
+            # create_remnawave_user проглатывает ошибки и возвращает None — без
+            # ретрая юзер не появился бы в панели (паттерн cabinet POST /trial).
+            from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+            remnawave_retry_queue.enqueue(subscription_id=subscription.id, user_id=user.id, action='create')
+            logger.warning(
+                'Триал по диплинку без Remnawave-пользователя — поставлен в очередь ретраев',
+                user_id=user.id,
+                subscription_id=subscription.id,
+            )
+
+        # Админ-уведомление об активации (оно же пишет SubscriptionEvent для
+        # таймлайна активности) — как в activate_trial бота и cabinet POST /trial.
+        if bot is not None:
+            try:
+                from app.services.admin_notification_service import AdminNotificationService
+
+                await AdminNotificationService(bot).send_trial_activation_notification(db, user, subscription)
+            except Exception as notify_error:
+                logger.warning(
+                    'Не удалось отправить админ-уведомление об активации триала по диплинку',
+                    error=str(notify_error),
+                    user_id=user.id,
+                )
+    except Exception:
+        logger.exception('Не удалось активировать триал по диплинку', user_id=getattr(user, 'id', None))
+
+
 async def _activate_pending_trial(
     db: AsyncSession,
     state: FSMContext,
@@ -721,6 +805,12 @@ async def _activate_pending_trial(
         if settings.is_trial_disabled_for_user(getattr(user, 'auth_type', None)):
             return False
         if user.is_trial_already_used():
+            return False
+
+        if not settings.TRIAL_CARD_BINDING_ENABLED:
+            # Платный триал выключен — бесплатная активация, как в upstream;
+            # затем меню рисуется как обычно (экрана оффера нет).
+            await _activate_free_trial_by_deeplink(db, user, bot)
             return False
 
         from app.database.crud.tariff import resolve_trial_tariffs

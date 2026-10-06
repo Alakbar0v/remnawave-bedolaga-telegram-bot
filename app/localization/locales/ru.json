@@ -1423,6 +1423,7 @@
   "PERIOD_60_DAYS": "📅 60 дней - {settings.format_price(settings.PRICE_60_DAYS)}",
   "PERIOD_90_DAYS": "📅 90 дней - {settings.format_price(settings.PRICE_90_DAYS)}",
   "POST_REGISTRATION_TRIAL_BUTTON": "Подключиться всего за 1₽",
+  "POST_REGISTRATION_FREE_TRIAL_BUTTON": "🚀 Подключиться бесплатно 🚀",
   "PRIVACY_POLICY_EMPTY_ALERT": "Политика конфиденциальности ещё не заполнена.",
   "PRIVACY_POLICY_HEADER": "🛡️ <b>Политика конфиденциальности</b>",
   "PRIVACY_POLICY_NOT_AVAILABLE": "Политика конфиденциальности временно недоступна.",

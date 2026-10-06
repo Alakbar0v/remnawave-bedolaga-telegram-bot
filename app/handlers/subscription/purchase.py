@@ -877,7 +877,14 @@ async def show_trial_tariffs(
     Гейты (ограничение на покупку, отключённый триал, уже использован)
     повторяют то, что раньше делал ``activate_trial`` — тот путь больше не
     вызывается с этого экрана.
+
+    При ``TRIAL_CARD_BINDING_ENABLED=False`` делегирует штатному
+    ``show_trial_offer`` (бесплатный триал, как в upstream).
     """
+    if not settings.TRIAL_CARD_BINDING_ENABLED:
+        await show_trial_offer(callback, db_user, db)
+        return
+
     texts = get_texts(db_user.language)
 
     # Проверка ограничения на покупку/продление подписки

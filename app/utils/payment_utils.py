@@ -297,7 +297,10 @@ def get_available_payment_methods() -> list[dict[str, str]]:
     # Левая часть — имя метода (LAVA_SBP/CARD_DISPLAY_NAME), правая «через …» —
     # имя провайдера (LAVA_DISPLAY_NAME): одна переменная в обеих частях давала
     # дубль вида «СБП (QR) - через СБП (QR)».
-    if settings.is_lava_sbp_enabled():
+    # TEMP: Lava/Antilopay скрыты из способов пополнения (TOPUP_HIDE_LAVA_ANTILOPAY)
+    show_lava = show_antilopay = not settings.TOPUP_HIDE_LAVA_ANTILOPAY
+
+    if show_lava and settings.is_lava_sbp_enabled():
         sbp_name = settings.get_lava_sbp_display_name()
         lava_name = settings.get_lava_display_name()
         methods.append(
@@ -310,7 +313,7 @@ def get_available_payment_methods() -> list[dict[str, str]]:
             }
         )
 
-    if settings.is_lava_card_enabled():
+    if show_lava and settings.is_lava_card_enabled():
         card_name = settings.get_lava_card_display_name()
         lava_name = settings.get_lava_display_name()
         methods.append(
@@ -323,7 +326,12 @@ def get_available_payment_methods() -> list[dict[str, str]]:
             }
         )
 
-    if settings.is_lava_enabled() and not settings.is_lava_sbp_enabled() and not settings.is_lava_card_enabled():
+    if (
+        show_lava
+        and settings.is_lava_enabled()
+        and not settings.is_lava_sbp_enabled()
+        and not settings.is_lava_card_enabled()
+    ):
         lava_name = settings.get_lava_display_name()
         methods.append(
             {
@@ -512,7 +520,7 @@ def get_available_payment_methods() -> list[dict[str, str]]:
             }
         )
 
-    if settings.is_antilopay_sbp_enabled():
+    if show_antilopay and settings.is_antilopay_sbp_enabled():
         sbp_name = settings.get_antilopay_sbp_display_name()
         methods.append(
             {
@@ -524,7 +532,7 @@ def get_available_payment_methods() -> list[dict[str, str]]:
             }
         )
 
-    if settings.is_antilopay_card_enabled():
+    if show_antilopay and settings.is_antilopay_card_enabled():
         card_name = settings.get_antilopay_card_display_name()
         methods.append(
             {
@@ -536,7 +544,7 @@ def get_available_payment_methods() -> list[dict[str, str]]:
             }
         )
 
-    if settings.is_antilopay_sberpay_enabled():
+    if show_antilopay and settings.is_antilopay_sberpay_enabled():
         sberpay_name = settings.get_antilopay_sberpay_display_name()
         methods.append(
             {
@@ -549,7 +557,8 @@ def get_available_payment_methods() -> list[dict[str, str]]:
         )
 
     if (
-        settings.is_antilopay_enabled()
+        show_antilopay
+        and settings.is_antilopay_enabled()
         and not settings.is_antilopay_sbp_enabled()
         and not settings.is_antilopay_card_enabled()
         and not settings.is_antilopay_sberpay_enabled()

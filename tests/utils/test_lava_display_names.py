@@ -23,6 +23,8 @@ def _enable_lava(monkeypatch, **overrides):
         'LAVA_DISPLAY_NAME': 'Lava',
         'LAVA_SBP_DISPLAY_NAME': 'СБП (QR)',
         'LAVA_CARD_DISPLAY_NAME': 'Картой',
+        # TEMP: по умолчанию Lava скрыта из списка пополнения — тесту нужен показ
+        'TOPUP_HIDE_LAVA_ANTILOPAY': False,
     }
     base.update(overrides)
     for key, value in base.items():

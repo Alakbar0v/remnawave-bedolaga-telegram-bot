@@ -18,6 +18,12 @@ from app.config import settings
 from app.database.models import User
 
 
+@pytest.fixture(autouse=True)
+def _card_binding_trial_enabled(monkeypatch):
+    # show_trial_tariffs / оффер карты и СБП работают только при включённом платном триале
+    monkeypatch.setattr(settings, 'TRIAL_CARD_BINDING_ENABLED', True)
+
+
 def _menu_has_trial(markup) -> bool:
     return any(getattr(btn, 'callback_data', None) == 'menu_trial' for row in markup.inline_keyboard for btn in row)
 
@@ -197,3 +203,14 @@ async def test_show_trial_tariffs_shows_card_button_without_calling_lava():
     assert 'trial_card_pay:42' in callbacks
     # Кнопка «Назад» ведёт сразу в главное меню — промежуточного экрана выбора больше нет.
     assert 'back_to_menu' in callbacks
+
+
+@pytest.mark.asyncio
+async def test_show_trial_tariffs_delegates_to_free_offer_when_card_binding_disabled(monkeypatch):
+    from app.handlers.subscription import purchase
+
+    monkeypatch.setattr(settings, 'TRIAL_CARD_BINDING_ENABLED', False)
+    cb, user, db = _make_cb_user_db()
+    with patch.object(purchase, 'show_trial_offer', new=AsyncMock()) as free_offer:
+        await purchase.show_trial_tariffs(cb, user, db)
+    free_offer.assert_awaited_once_with(cb, user, db)

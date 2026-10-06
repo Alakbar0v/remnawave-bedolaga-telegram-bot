@@ -296,11 +296,15 @@ def get_channel_sub_keyboard(
 
 def get_post_registration_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
+    if settings.TRIAL_CARD_BINDING_ENABLED:
+        button_text = texts.t('POST_REGISTRATION_TRIAL_BUTTON', '🚀 Подключиться всего за 1₽')
+    else:
+        button_text = texts.t('POST_REGISTRATION_FREE_TRIAL_BUTTON', '🚀 Подключиться бесплатно 🚀')
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=texts.t('POST_REGISTRATION_TRIAL_BUTTON', '🚀 Подключиться всего за 1₽'),
+                    text=button_text,
                     icon_custom_emoji_id=ROCKET_ICON_CUSTOM_EMOJI_ID,
                     # menu_trial -> show_trial_tariffs: тот же поток триала (карта/СБП),
                     # что и в главном меню / диплинке /start trial.
@@ -2224,7 +2228,10 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         )
         has_direct_payment_methods = True
 
-    if settings.is_antilopay_sbp_enabled():
+    # TEMP: Lava/Antilopay скрыты из способов пополнения (TOPUP_HIDE_LAVA_ANTILOPAY)
+    show_antilopay = show_lava = not settings.TOPUP_HIDE_LAVA_ANTILOPAY
+
+    if show_antilopay and settings.is_antilopay_sbp_enabled():
         sbp_name = settings.get_antilopay_sbp_display_name()
         keyboard.append(
             [
@@ -2237,7 +2244,7 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         )
         has_direct_payment_methods = True
 
-    if settings.is_antilopay_card_enabled():
+    if show_antilopay and settings.is_antilopay_card_enabled():
         card_name = settings.get_antilopay_card_display_name()
         keyboard.append(
             [
@@ -2250,7 +2257,7 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         )
         has_direct_payment_methods = True
 
-    if settings.is_antilopay_sberpay_enabled():
+    if show_antilopay and settings.is_antilopay_sberpay_enabled():
         sberpay_name = settings.get_antilopay_sberpay_display_name()
         keyboard.append(
             [
@@ -2263,7 +2270,8 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         has_direct_payment_methods = True
 
     if (
-        settings.is_antilopay_enabled()
+        show_antilopay
+        and settings.is_antilopay_enabled()
         and not settings.is_antilopay_sbp_enabled()
         and not settings.is_antilopay_card_enabled()
         and not settings.is_antilopay_sberpay_enabled()
@@ -2360,7 +2368,7 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         )
         has_direct_payment_methods = True
 
-    if settings.is_lava_card_enabled():
+    if show_lava and settings.is_lava_card_enabled():
         lava_card_name = settings.get_lava_card_display_name()
         keyboard.append(
             [
@@ -2373,7 +2381,7 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         )
         has_direct_payment_methods = True
 
-    if settings.is_lava_sbp_enabled():
+    if show_lava and settings.is_lava_sbp_enabled():
         lava_sbp_name = settings.get_lava_sbp_display_name()
         keyboard.append(
             [
@@ -2386,7 +2394,12 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         )
         has_direct_payment_methods = True
 
-    if settings.is_lava_enabled() and not settings.is_lava_card_enabled() and not settings.is_lava_sbp_enabled():
+    if (
+        show_lava
+        and settings.is_lava_enabled()
+        and not settings.is_lava_card_enabled()
+        and not settings.is_lava_sbp_enabled()
+    ):
         lava_name = settings.get_lava_display_name()
         keyboard.append(
             [

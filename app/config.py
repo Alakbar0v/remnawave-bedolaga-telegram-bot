@@ -321,6 +321,13 @@ class Settings(BaseSettings):
     TRIAL_DEVICE_LIMIT: int = 2
     TRIAL_ADD_REMAINING_DAYS_TO_PAID: bool = False
     TRIAL_PAYMENT_ENABLED: bool = False
+    # Платный триал с привязкой карты (Lava) / СБП (Antilopay): списание 1 ₽ и автопродление
+    # после пробного периода. Выключен — триал бесплатный, как в upstream.
+    TRIAL_CARD_BINDING_ENABLED: bool = False
+    # TEMP: скрыть Lava и Antilopay из списков способов пополнения (бот и кабинет).
+    # Только скрывает показ: провайдеры остаются включёнными — вебхуки, реконсиляция и
+    # отмена живых рекуррентов продолжают работать. Убрать флаг, когда вернём способы.
+    TOPUP_HIDE_LAVA_ANTILOPAY: bool = True
     TRIAL_ACTIVATION_PRICE: int = 0
     TRIAL_USER_TAG: str | None = None
     TRIAL_DISABLED_FOR: str = 'none'  # none, email, telegram, all
