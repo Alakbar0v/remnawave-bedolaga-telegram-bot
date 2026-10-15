@@ -792,13 +792,6 @@ async def _activate_pending_trial(
         # триала (activate_trial бота, cabinet POST /trial, webapi miniapp,
         # оплата триала через YooKassa/CryptoBot/Platega/Stars).
         try:
-            from app.services import tiktok_events_service as tiktok_events
-
-            tiktok_events.spawn_bg(tiktok_events.fire_trial_bg(user.id))
-        except Exception as exc:
-            logger.debug('Не удалось отправить TikTok trial событие для пользователя', user_id=user.id, exc=exc)
-
-        try:
             from app.services import yandex_offline_conv_service as yandex_conv
 
             yandex_conv.spawn_bg(yandex_conv.fire_trial_bg(user.id))

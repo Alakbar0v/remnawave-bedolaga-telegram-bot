@@ -429,25 +429,36 @@ async def on_trial(db: AsyncSession, user_id: int) -> None:
 
 
 async def on_first_connected(db: AsyncSession, user_id: int) -> None:
-    """Fire first-VPN-connection event (once per user)."""
+    """Fire StartTrial on the user's first VPN connection (once per user).
+
+    StartTrial is deliberately sent here and NOT at trial activation: TikTok
+    should count a trial only once the person actually connected. Both markers
+    are set so a user is never reported twice.
+    """
     if not _is_enabled():
         return
 
     try:
         row = await get_ttclid(db, user_id)
-        if not row or row.first_connected_sent or not row.ttclid:
+        if not row or row.first_connected_sent or row.trial_sent or not row.ttclid:
             return
 
-        event = settings.TIKTOK_EVENT_FIRST_CONNECTED
         success = await _post_event(
             _event_payload(
-                row.ttclid, event, f'{event}_{user_id}', user_id, ttp=row.ttp, ip=row.ip, user_agent=row.user_agent
+                row.ttclid,
+                EVENT_TRIAL,
+                f'{EVENT_TRIAL}_{user_id}',
+                user_id,
+                ttp=row.ttp,
+                ip=row.ip,
+                user_agent=row.user_agent,
             ),
             'first_connected',
             row.ttclid,
         )
         if success:
             await mark_first_connected_sent(db, user_id)
+            await mark_trial_sent(db, user_id)
             await db.commit()
             logger.info('tiktok first-connected event sent', user_id=user_id)
     except Exception as exc:

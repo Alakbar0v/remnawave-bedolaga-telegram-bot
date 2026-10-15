@@ -277,6 +277,48 @@ async def test_on_registration_fires_and_marks_sent() -> None:
 
 
 @pytest.mark.asyncio
+async def test_on_first_connected_sends_start_trial_and_marks_both_flags() -> None:
+    """StartTrial уходит в TikTok только после первого подключения, один раз."""
+    row = SimpleNamespace(
+        ttclid='ttclid.abc123',
+        ttp=None,
+        ip=None,
+        user_agent=None,
+        first_connected_sent=False,
+        trial_sent=False,
+    )
+    db = AsyncMock()
+    with (
+        patch.object(tiktok_events, '_is_enabled', return_value=True),
+        patch.object(tiktok_events, 'get_ttclid', AsyncMock(return_value=row)),
+        patch.object(tiktok_events, '_post_event', AsyncMock(return_value=True)) as post_mock,
+        patch.object(tiktok_events, 'mark_first_connected_sent', AsyncMock()) as first_mock,
+        patch.object(tiktok_events, 'mark_trial_sent', AsyncMock()) as trial_mock,
+    ):
+        await tiktok_events.on_first_connected(db, 42)
+
+    post_mock.assert_awaited_once()
+    assert post_mock.await_args.args[0]['data'][0]['event'] == 'StartTrial'
+    first_mock.assert_awaited_once_with(db, 42)
+    trial_mock.assert_awaited_once_with(db, 42)
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('already', [{'first_connected_sent': True}, {'trial_sent': True}])
+async def test_on_first_connected_skips_when_already_reported(already: dict) -> None:
+    flags = {'first_connected_sent': False, 'trial_sent': False, **already}
+    row = SimpleNamespace(ttclid='ttclid.abc123', ttp=None, ip=None, user_agent=None, **flags)
+    with (
+        patch.object(tiktok_events, '_is_enabled', return_value=True),
+        patch.object(tiktok_events, 'get_ttclid', AsyncMock(return_value=row)),
+        patch.object(tiktok_events, '_post_event', AsyncMock()) as post_mock,
+    ):
+        await tiktok_events.on_first_connected(AsyncMock(), 42)
+    post_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_on_purchase_fires_every_call_no_dedup_flag() -> None:
     """Unlike registration/trial/first-connected, purchases have no dedup flag —
     every completed payment should fire its own event."""
