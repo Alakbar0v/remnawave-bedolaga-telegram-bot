@@ -242,7 +242,7 @@ async def test_builder_links_username_used_instead_of_name(monkeypatch):
 
     html_out = await rich_menu.build_main_menu_rich_html(user, DummyTexts(), AsyncMock())
 
-    assert html_out.startswith('<h4>👤 <a href="https://t.me/durov">@durov</a></h4>')
+    assert html_out.startswith('<h4><tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> <a href="https://t.me/durov">@durov</a></h4>')
 
 
 async def test_builder_keeps_plain_name_when_user_has_one(monkeypatch):
@@ -258,7 +258,7 @@ async def test_builder_keeps_plain_name_when_user_has_one(monkeypatch):
 
     html_out = await rich_menu.build_main_menu_rich_html(user, DummyTexts(), AsyncMock())
 
-    assert html_out.startswith('<h4>👤 Егор &lt;script&gt;</h4>')
+    assert html_out.startswith('<h4><tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Егор &lt;script&gt;</h4>')
     assert 't.me/durov' not in html_out
 
 
@@ -277,7 +277,7 @@ async def test_builder_survives_user_without_username_attribute(monkeypatch):
 
     html_out = await rich_menu.build_main_menu_rich_html(user, DummyTexts(), AsyncMock())
 
-    assert html_out.startswith('<h4>👤 Егор &lt;script&gt;</h4>')
+    assert html_out.startswith('<h4><tg-emoji emoji-id="5258011929993026890">👤</tg-emoji> Егор &lt;script&gt;</h4>')
 
 
 async def test_builder_multi_tariff_table(monkeypatch):
