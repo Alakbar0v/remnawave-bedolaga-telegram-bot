@@ -1,7 +1,7 @@
 """add ip and user_agent columns to tiktok_click_id_map
 
 Revision ID: custom_0003
-Revises: custom_merge_0106
+Revises: custom_0002
 Create Date: 2026-08-29
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = 'custom_0003'
-down_revision: Union[str, None] = 'custom_merge_0106'
+down_revision: Union[str, None] = 'custom_0002'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

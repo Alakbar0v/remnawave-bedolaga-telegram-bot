@@ -1,6 +1,6 @@
 """add tiktok_click_id_map table
 
-Revision ID: 0105
+Revision ID: custom_0001
 Revises: 0104
 Create Date: 2026-08-05
 """
@@ -10,7 +10,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = '0105'
+revision: str = 'custom_0001'
 down_revision: Union[str, None] = '0104'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
