@@ -22,6 +22,7 @@ async def test_fulfill_purchase_passes_purchase_context_to_user_resolution():
         contact_type='email',
         contact_value='buyer@example.com',
         tariff_id=23,
+        personalized_telegram_id=None,
     )
     result = MagicMock()
     result.scalars.return_value.first.return_value = purchase

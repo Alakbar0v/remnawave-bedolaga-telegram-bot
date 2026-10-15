@@ -142,6 +142,7 @@ def test_bot_gift_claim_link_uses_safe_prefix_threshold() -> None:
         auto_login_token=None,
         paid_at=None,
         user=None,
+        personalized_telegram_id=None,
     )
 
     with patch(
@@ -172,6 +173,7 @@ async def test_paid_fulfillment_rechecks_access_before_find_or_create() -> None:
         gift_recipient_type=None,
         gift_recipient_value=None,
         tariff_id=1,
+        personalized_telegram_id=None,
     )
     db = AsyncMock()
     db.execute = AsyncMock(return_value=_ScalarResult(purchase))
@@ -198,6 +200,7 @@ async def test_paid_gift_fulfillment_never_creates_recipient_user() -> None:
         status=GuestPurchaseStatus.PAID.value,
         is_gift=True,
         user_id=None,
+        personalized_telegram_id=None,
     )
     db = AsyncMock()
     db.execute = AsyncMock(return_value=_ScalarResult(purchase))
