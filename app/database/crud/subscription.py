@@ -2136,17 +2136,18 @@ async def wipe_trial_subscriptions(db: AsyncSession, subscriptions) -> int:
     from sqlalchemy import update
 
     from app.external.remnawave_api import RemnaWaveInvalidUserIdError
+    from app.services.remnawave_webhook_service import RemnaWaveWebhookService
     from app.services.subscription_service import SubscriptionService
 
     is_multi = settings.is_multi_tariff_enabled()
-    delete_panel_user = settings.get_remnawave_user_delete_mode() == 'delete'
+    delete_panel_user =settings.get_remnawave_user_delete_mode() == 'delete'
     service = SubscriptionService()
     # subscription.id → id удалённого в панели аккаунта: в мультитарифе по нему
     # стирается ссылка у человека (см. конец функции).
     deleted_panel_ids: dict[int, int] = {}
 
     if service.is_configured:
-        semaphore = asyncio.Semaphore(5)
+        semaphore = asyncio.Semaphore(10)
 
         async with service.get_api_client() as api:
 
@@ -2185,6 +2186,9 @@ async def wipe_trial_subscriptions(db: AsyncSession, subscriptions) -> int:
                 async with semaphore:
                     try:
                         if delete_panel_user:
+                            # Вебхук user.deleted может прийти раньше ответа API — метим заранее,
+                            # иначе поток вебхуков забивает пул соединений, пока сброс держит транзакцию.
+                            RemnaWaveWebhookService.mark_intentional_panel_deletion(panel_user_ids=[panel_user_id])
                             await api.delete_user(panel_user_id)
                             deleted_panel_ids[subscription.id] = panel_user_id
                         else:

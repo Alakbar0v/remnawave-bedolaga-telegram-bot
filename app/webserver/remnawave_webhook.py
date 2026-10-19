@@ -149,6 +149,12 @@ def create_remnawave_webhook_router(bot: Bot, webhook_service: RemnaWaveWebhookS
                 logger.exception('RemnaWave webhook processing error', event_name=event_name)
                 return JSONResponse({'status': 'ok', 'processed': False})
 
+        # Удаление инициировал сам бот — user.deleted ничего не меняет, а сессия БД
+        # при массовом сбросе забивает пул. Отвечаем до открытия сессии.
+        if event_name == 'user.deleted' and webhook_service._is_intentional_panel_deletion_event(data):
+            logger.info('RemnaWave webhook: user.deleted suppressed — intentional deletion')
+            return JSONResponse({'status': 'ok', 'processed': False})
+
         # User events and dual events require a DB session
         try:
             async with AsyncSessionLocal() as db:
