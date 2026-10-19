@@ -325,7 +325,10 @@ TARGET_SEGMENTS: tuple[str, ...] = (
     'trial_ending',
     'expiring',
     'expired',
+    'no',
     'zero',
+    'active_zero',
+    'trial_zero',
     'autopay_failed',
     'low_balance',
     'inactive_30d',
@@ -335,6 +338,10 @@ TARGET_SEGMENTS: tuple[str, ...] = (
     'custom_week',
     'custom_month',
     'custom_active_today',
+    'custom_inactive_week',
+    'custom_inactive_month',
+    'custom_referrals',
+    'custom_direct',
 )
 
 
