@@ -2247,13 +2247,18 @@ async def wipe_trial_subscriptions(db: AsyncSession, subscriptions) -> int:
     subscription_ids = [subscription.id for subscription in to_reset]
     subscription_users = {subscription.id: subscription.user_id for subscription in to_reset}
 
-    try:
-        await db.execute(delete(SubscriptionServer).where(SubscriptionServer.subscription_id.in_(subscription_ids)))
-    except Exception as error:  # pragma: no cover - defensive logging
-        logger.error('Ошибка удаления серверных связей триалов', subscription_ids=subscription_ids, error=error)
-        raise
+    # Пачками: одно DELETE по тысячам подписок с каскадом по дочерним таблицам упирается
+    # в command_timeout (30 с) asyncpg, и весь сброс откатывается.
+    delete_chunk_size = 200
+    for start in range(0, len(subscription_ids), delete_chunk_size):
+        chunk_ids = subscription_ids[start : start + delete_chunk_size]
+        try:
+            await db.execute(delete(SubscriptionServer).where(SubscriptionServer.subscription_id.in_(chunk_ids)))
+        except Exception as error:  # pragma: no cover - defensive logging
+            logger.error('Ошибка удаления серверных связей триалов', subscription_ids=chunk_ids, error=error)
+            raise
 
-    await db.execute(delete(Subscription).where(Subscription.id.in_(subscription_ids)))
+        await db.execute(delete(Subscription).where(Subscription.id.in_(chunk_ids)))
 
     # single-tariff: панель-юзер на уровне пользователя — чистим устаревшую панельную
     # идентичность, чтобы синк по ней ничего не восстанавливал. Историческую колонку
