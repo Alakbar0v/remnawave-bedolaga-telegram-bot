@@ -120,6 +120,16 @@ def create_broadcast_keyboard(
                         cabinet_path=BUTTON_KEY_TO_CABINET_PATH.get(button_key, ''),
                     )
                 )
+            elif button_config.get('icon_custom_emoji_id'):
+                # Иконка рисуется кастомным эмодзи, поэтому обычный эмодзи в начале подписи убираем.
+                label = button_config['text'].split(' ', 1)[-1]
+                row_buttons.append(
+                    types.InlineKeyboardButton(
+                        text=label,
+                        callback_data=button_config['callback'],
+                        icon_custom_emoji_id=button_config['icon_custom_emoji_id'],
+                    )
+                )
             else:
                 row_buttons.append(
                     types.InlineKeyboardButton(text=button_config['text'], callback_data=button_config['callback'])

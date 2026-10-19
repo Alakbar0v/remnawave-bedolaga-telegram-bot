@@ -2261,6 +2261,13 @@ BROADCAST_BUTTONS = {
         'text_key': 'ADMIN_BROADCAST_BUTTON_SUBSCRIPTION',
         'callback': 'menu_subscription',
     },
+    'trial': {
+        'default_text': '🎁 Пробная подписка',
+        'text_key': 'ADMIN_BROADCAST_BUTTON_TRIAL',
+        'callback': 'menu_trial',
+        # Та же иконка, что у кнопки триала в главном меню (inline.TRIAL_ICON_CUSTOM_EMOJI_ID).
+        'icon_custom_emoji_id': '6283073379184415506',
+    },
     'support': {
         'default_text': '🛠️ Техподдержка',
         'text_key': 'ADMIN_BROADCAST_BUTTON_SUPPORT',
@@ -2276,8 +2283,8 @@ BROADCAST_BUTTONS = {
 BROADCAST_BUTTON_ROWS: tuple[tuple[str, ...], ...] = (
     ('balance', 'referrals'),
     ('promocode', 'connect'),
-    ('subscription', 'support'),
-    ('home',),
+    ('subscription', 'trial'),
+    ('support', 'home'),
 )
 
 
@@ -2287,6 +2294,7 @@ def get_broadcast_button_config(language: str) -> dict[str, dict[str, str]]:
         key: {
             'text': texts.t(config['text_key'], config['default_text']),
             'callback': config['callback'],
+            **({'icon_custom_emoji_id': config['icon_custom_emoji_id']} if config.get('icon_custom_emoji_id') else {}),
         }
         for key, config in BROADCAST_BUTTONS.items()
     }
