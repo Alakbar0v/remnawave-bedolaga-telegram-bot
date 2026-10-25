@@ -204,7 +204,7 @@ def create_web_api_app(lifespan: Any = None) -> FastAPI:
             allow_origins=['*'],
             allow_credentials=False,
             allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-            allow_headers=['Authorization', 'Content-Type', 'X-CSRF-Token', 'X-Telegram-Init-Data'],
+            allow_headers=['Authorization', 'Content-Type', 'X-CSRF-Token', 'X-Telegram-Init-Data', 'X-Purchase-Data'],
         )
     else:
         app.add_middleware(
@@ -212,7 +212,7 @@ def create_web_api_app(lifespan: Any = None) -> FastAPI:
             allow_origins=all_origins,
             allow_credentials=True,
             allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-            allow_headers=['Authorization', 'Content-Type', 'X-CSRF-Token', 'X-Telegram-Init-Data'],
+            allow_headers=['Authorization', 'Content-Type', 'X-CSRF-Token', 'X-Telegram-Init-Data', 'X-Purchase-Data'],
         )
 
     if settings.WEB_API_REQUEST_LOGGING:

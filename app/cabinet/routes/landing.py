@@ -1,11 +1,14 @@
 """Public landing page routes for guest quick-purchase flow."""
 
+import base64
+import binascii
+import json
 import re
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
-from pydantic import BaseModel, Field, model_validator
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, Response, status
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -954,6 +957,27 @@ async def get_landing_config(
         analytics_click_goal=landing.analytics_click_goal,
         personalization=personalization,
     )
+
+
+@router.get('/{slug}/purchase', response_model=PurchaseResponse)
+async def create_landing_purchase_get(
+    slug: str,
+    raw_request: Request,
+    response: Response,
+    x_purchase_data: str = Header(max_length=8000),
+    db: AsyncSession = Depends(get_cabinet_db),
+):
+    """Same as POST /{slug}/purchase, for CDNs that drop POST.
+
+    The body travels in the X-Purchase-Data header as base64url(JSON, UTF-8).
+    """
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(x_purchase_data + '=' * (-len(x_purchase_data) % 4)))
+        body = PurchaseRequest.model_validate(payload)
+    except (binascii.Error, ValueError, ValidationError) as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Invalid purchase data') from exc
+    response.headers['Cache-Control'] = 'no-store'
+    return await create_landing_purchase(slug, body, raw_request, db)
 
 
 @router.post('/{slug}/purchase', response_model=PurchaseResponse)
