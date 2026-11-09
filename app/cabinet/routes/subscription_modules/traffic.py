@@ -849,7 +849,9 @@ async def refresh_traffic(
             if settings.is_multi_tariff_enabled() and subscription.remnawave_id
             else user.remnawave_id
         )
-        if user.telegram_id and not settings.is_multi_tariff_enabled():
+        # Поиск по telegramId берёт первого найденного — на общей панели нескольких
+        # ботов это аккаунт соседа, и его трафик запишется в нашу подписку.
+        if user.telegram_id and not settings.is_multi_tariff_enabled() and settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL:
             traffic_stats = await remnawave_service.get_user_traffic_stats(user.telegram_id)
         elif _traffic_panel_user_id:
             traffic_stats = await remnawave_service.get_user_traffic_stats_by_panel_id(_traffic_panel_user_id)

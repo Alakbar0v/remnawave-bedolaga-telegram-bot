@@ -2576,6 +2576,10 @@ class RemnaWaveService:
         return stats.as_dict()
 
     async def get_user_traffic_stats(self, telegram_id: int) -> dict[str, Any] | None:
+        # Поиск по telegramId на общей панели нескольких ботов возвращает чужой аккаунт.
+        if not settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL:
+            return None
+
         try:
             async with self.get_api_client() as api:
                 users = await api.find_users_by_telegram_id(telegram_id)
