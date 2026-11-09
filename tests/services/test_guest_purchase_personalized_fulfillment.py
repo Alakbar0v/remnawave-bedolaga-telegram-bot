@@ -222,7 +222,7 @@ async def test_personalized_purchase_limited_subscription_extends_and_resets_tra
     "ran out of traffic, buys more," not a race. It must extend (which resets
     traffic_used_gb and converts trial→paid where relevant), same as a normal
     renewal — not silently drop the purchase or replace it."""
-    limited = SimpleNamespace(tariff_id=7, status='limited', end_date=datetime.now(UTC) + timedelta(days=5))
+    limited = SimpleNamespace(tariff_id=7, status='limited', is_trial=False, end_date=datetime.now(UTC) + timedelta(days=5))
     purchase = _purchase()
     db = _db_with_purchase(purchase)
 

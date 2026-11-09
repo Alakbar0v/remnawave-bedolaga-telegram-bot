@@ -59,6 +59,7 @@ from app.services.registration_access_service import (
     VerifiedRegistrationIdentity,
 )
 from app.services.subscription_service import SubscriptionService
+from app.services.traffic_reset_policy import should_reset_traffic_on_tariff_purchase
 from app.utils.gift_links import GIFT_TOKEN_MIN_PREFIX_LENGTH
 
 
@@ -604,7 +605,9 @@ async def fulfill_purchase(
 
             # In multi-tariff mode, only block if user already has THIS SPECIFIC tariff active.
             # Different tariffs can be purchased simultaneously — that's the whole point.
-            existing_subscription = await get_subscription_by_user_and_tariff(db, user.id, tariff.id)
+            existing_subscription = await get_subscription_by_user_and_tariff(
+                db, user.id, tariff.id, include_inactive=not purchase.is_gift
+            )
         else:
             existing_subscription = await get_subscription_by_user_id(db, user.id)
         if not is_personalized and existing_subscription is not None and (existing_subscription.is_active or purchase.is_gift):
@@ -654,28 +657,27 @@ async def fulfill_purchase(
             all_servers, _ = await get_all_server_squads(db, available_only=True)
             squads = [s.squad_uuid for s in all_servers if s.squad_uuid]
 
+        is_tariff_renewal = (
+            not purchase.is_gift and existing_subscription is not None and existing_subscription.tariff_id == tariff.id
+        )
+        reset_traffic = False  # Preserve the existing policy for new purchases and tariff changes.
+        if is_tariff_renewal:
+            reset_traffic = should_reset_traffic_on_tariff_purchase(
+                is_tariff_change=False, was_trial=existing_subscription.is_trial, paid_kopeks=purchase.amount_kopeks
+            )
         _existing_has_time = (
             existing_subscription is not None
             and existing_subscription.status in ALIVE_SUBSCRIPTION_STATUSES
             and existing_subscription.end_date is not None
             and _aware(existing_subscription.end_date) > datetime.now(UTC)
         )
-        if is_personalized and existing_subscription is not None and _existing_has_time:
-            # Two cases land here:
-            #  - TRIAL / LIMITED (out of traffic but time-alive): the EXPECTED,
-            #    common path — user_has_active_subscription() deliberately does
-            #    not block these, since "ran out of traffic/on a trial" is
-            #    exactly who this feature is for. extend_subscription resets
-            #    traffic and converts trial→paid, same as a normal renewal.
-            #  - ACTIVE: a genuine race — the user acquired/renewed a
-            #    subscription between payment and this webhook (e.g. bought in
-            #    the bot in the meantime). Worth a warning since it's normally
-            #    blocked upstream and this is the narrow window it can slip
-            #    through in.
-            # Either way: money is already taken and this mode has no
-            # PENDING_ACTIVATION hold (see above), so extend rather than
-            # replace — preserves remaining days, no lost time, no manual step.
-            if existing_subscription.status == SubscriptionStatus.ACTIVE.value:
+        _personalized_extend = is_personalized and existing_subscription is not None and _existing_has_time
+        if is_tariff_renewal or _personalized_extend:
+            # Personalized purchases (TRIAL / LIMITED out of traffic but time-alive,
+            # or a race with a just-activated ACTIVE subscription): money is already
+            # taken and this mode has no PENDING_ACTIVATION hold, so extend rather
+            # than replace — preserves remaining days, no lost time, no manual step.
+            if _personalized_extend and existing_subscription.status == SubscriptionStatus.ACTIVE.value:
                 logger.warning(
                     'Personalized purchase extended an already-active subscription (race)',
                     purchase_id=purchase.id,
@@ -691,10 +693,16 @@ async def fulfill_purchase(
                 traffic_limit_gb=tariff.traffic_limit_gb,
                 device_limit=tariff.device_limit,
                 connected_squads=squads,
-                commit=False,
+                paid_traffic_reset=False,
+                reset_used_traffic=reset_traffic,
+                # Personalized landing purchase: defer the commit so the extension is
+                # atomic with promo-offer consumption and the DELIVERED status below.
+                **({'commit': False} if _personalized_extend else {}),
             )
         elif existing_subscription is not None:
-            # Expired/inactive subscription — replace it
+            # A different tariff (or expired subscription) keeps the replacement policy.
+            if existing_subscription.tariff_id != tariff.id:
+                existing_subscription.daily_devices_billing_version = 0
             existing_subscription.tariff_id = tariff.id
             subscription = await replace_subscription(
                 db,
@@ -720,7 +728,7 @@ async def fulfill_purchase(
             )
 
         subscription_service = SubscriptionService()
-        await subscription_service.create_remnawave_user(db, subscription)
+        await subscription_service.create_remnawave_user(db, subscription, reset_traffic=reset_traffic)
         await db.refresh(subscription)
 
         purchase.subscription_url = subscription.subscription_url
@@ -1292,11 +1300,14 @@ async def _send_telegram_gift_notification(
         from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
         from app.bot_factory import create_bot
+        from app.localization.texts import get_texts
+
+        texts = get_texts(getattr(user, 'language', None))
 
         gift_from = ''
         if purchase.contact_value:
             safe_name = html_mod.escape(purchase.contact_value)
-            gift_from = f'\nОт: {safe_name}'
+            gift_from = texts.t('REFERRAL_GIFT_UI_031', '\nОт: {value1}').format(value1=safe_name)
 
         gift_msg = ''
         if purchase.gift_message:
@@ -1304,19 +1315,28 @@ async def _send_telegram_gift_notification(
             gift_msg = f'\n\n"{safe_msg}"'
 
         safe_tariff = html_mod.escape(tariff_name) if tariff_name else ''
-        period_text = f'{purchase.period_days} дн.' if purchase.period_days else ''
+        period_text = (
+            texts.t('REFERRAL_GIFT_UI_032', '{value1} дн.').format(value1=purchase.period_days)
+            if purchase.period_days
+            else ''
+        )
         tariff_text = f'{safe_tariff} — {period_text}' if safe_tariff else period_text
 
-        text = f'🎁 <b>Вам подарили VPN подписку!</b>\n{tariff_text}{gift_from}{gift_msg}'
+        text = texts.t('REFERRAL_GIFT_UI_030', '🎁 <b>Вам подарили VPN подписку!</b>\n{value1}{value2}{value3}').format(
+            value1=tariff_text, value2=gift_from, value3=gift_msg
+        )
 
         keyboard = None
         if is_pending_activation:
-            text += '\n\nУ вас уже есть активная подписка. Нажмите кнопку ниже, чтобы активировать подарок (текущая подписка будет заменена).'
+            text += texts.t(
+                'REFERRAL_GIFT_UI_033',
+                '\n\nУ вас уже есть активная подписка. Нажмите кнопку ниже, чтобы активировать подарок (текущая подписка будет заменена).',
+            )
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text='Активировать подарок',
+                            text=texts.t('REFERRAL_GIFT_UI_034', 'Активировать подарок'),
                             callback_data=f'gift_activate:{purchase.id}',
                         )
                     ]
@@ -1750,100 +1770,67 @@ async def activate_purchase(db: AsyncSession, purchase_token: str, *, skip_notif
             all_servers, _ = await get_all_server_squads(db, available_only=True)
             squads = [s.squad_uuid for s in all_servers if s.squad_uuid]
 
-        # In multi-tariff mode, always create a new subscription (new Remnawave user)
         if settings.is_multi_tariff_enabled():
             from app.database.crud.subscription import get_subscription_by_user_and_tariff
 
-            existing_for_tariff = await get_subscription_by_user_and_tariff(db, user.id, tariff.id)
-            _has_time = (
-                existing_for_tariff is not None
-                and existing_for_tariff.end_date is not None
-                and _aware(existing_for_tariff.end_date) > datetime.now(UTC)
+            existing_subscription = await get_subscription_by_user_and_tariff(
+                db, user.id, tariff.id, include_inactive=not purchase.is_gift
             )
-            if existing_for_tariff and _has_time:
-                # Extend existing active/trial subscription instead of replacing (preserve remaining days)
-                subscription = await extend_subscription(
-                    db,
-                    existing_for_tariff,
-                    purchase.period_days,
-                    traffic_limit_gb=tariff.traffic_limit_gb,
-                    device_limit=tariff.device_limit,
-                    connected_squads=squads,
-                    commit=False,
-                )
-            elif existing_for_tariff:
-                # Expired subscription — replace with fresh dates
-                subscription = await replace_subscription(
-                    db,
-                    existing_for_tariff,
-                    duration_days=purchase.period_days,
-                    traffic_limit_gb=tariff.traffic_limit_gb,
-                    device_limit=tariff.device_limit,
-                    connected_squads=squads,
-                    is_trial=False,
-                    tariff_id=tariff.id,
-                    update_server_counters=True,
-                    commit=False,
-                )
-            else:
-                subscription = await create_paid_subscription(
-                    db=db,
-                    user_id=user.id,
-                    duration_days=purchase.period_days,
-                    traffic_limit_gb=tariff.traffic_limit_gb,
-                    device_limit=tariff.device_limit,
-                    connected_squads=squads,
-                    tariff_id=tariff.id,
-                    update_server_counters=True,
-                    commit=False,
-                )
         else:
             existing_subscription = await get_subscription_by_user_id(db, user.id)
-            _sub_has_time = (
-                existing_subscription is not None
-                and existing_subscription.end_date is not None
-                and _aware(existing_subscription.end_date) > datetime.now(UTC)
+        is_tariff_renewal = (
+            not purchase.is_gift and existing_subscription is not None and existing_subscription.tariff_id == tariff.id
+        )
+        reset_traffic = False  # New purchases and tariff changes retain their existing policy.
+        if is_tariff_renewal:
+            reset_traffic = should_reset_traffic_on_tariff_purchase(
+                is_tariff_change=False, was_trial=existing_subscription.is_trial, paid_kopeks=purchase.amount_kopeks
             )
-            if existing_subscription is not None and _sub_has_time:
-                # Extend existing active subscription (preserve remaining days)
-                subscription = await extend_subscription(
-                    db,
-                    existing_subscription,
-                    purchase.period_days,
-                    tariff_id=tariff.id,
-                    traffic_limit_gb=tariff.traffic_limit_gb,
-                    device_limit=tariff.device_limit,
-                    connected_squads=squads,
-                    commit=False,
-                )
-            elif existing_subscription is not None:
-                # Expired subscription — replace with fresh dates
-                subscription = await replace_subscription(
-                    db,
-                    existing_subscription,
-                    duration_days=purchase.period_days,
-                    traffic_limit_gb=tariff.traffic_limit_gb,
-                    device_limit=tariff.device_limit,
-                    connected_squads=squads,
-                    is_trial=False,
-                    tariff_id=tariff.id,
-                    update_server_counters=True,
-                    commit=False,
-                )
-            else:
-                subscription = await create_paid_subscription(
-                    db=db,
-                    user_id=user.id,
-                    duration_days=purchase.period_days,
-                    traffic_limit_gb=tariff.traffic_limit_gb,
-                    device_limit=tariff.device_limit,
-                    connected_squads=squads,
-                    tariff_id=tariff.id,
-                    update_server_counters=True,
-                    commit=False,
-                )
+        has_time = (
+            existing_subscription is not None
+            and existing_subscription.end_date is not None
+            and (_aware(existing_subscription.end_date) > datetime.now(UTC))
+        )
+        if existing_subscription is not None and (is_tariff_renewal or has_time):
+            subscription = await extend_subscription(
+                db,
+                existing_subscription,
+                purchase.period_days,
+                tariff_id=tariff.id if is_tariff_renewal or not settings.is_multi_tariff_enabled() else None,
+                traffic_limit_gb=tariff.traffic_limit_gb,
+                device_limit=tariff.device_limit,
+                connected_squads=squads,
+                paid_traffic_reset=False,
+                reset_used_traffic=reset_traffic if is_tariff_renewal else None,
+                commit=False,
+            )
+        elif existing_subscription is not None:
+            subscription = await replace_subscription(
+                db,
+                existing_subscription,
+                duration_days=purchase.period_days,
+                traffic_limit_gb=tariff.traffic_limit_gb,
+                device_limit=tariff.device_limit,
+                connected_squads=squads,
+                is_trial=False,
+                tariff_id=tariff.id,
+                update_server_counters=True,
+                commit=False,
+            )
+        else:
+            subscription = await create_paid_subscription(
+                db=db,
+                user_id=user.id,
+                duration_days=purchase.period_days,
+                traffic_limit_gb=tariff.traffic_limit_gb,
+                device_limit=tariff.device_limit,
+                connected_squads=squads,
+                tariff_id=tariff.id,
+                update_server_counters=True,
+                commit=False,
+            )
 
-        await subscription_service.create_remnawave_user(db, subscription)
+        await subscription_service.create_remnawave_user(db, subscription, reset_traffic=reset_traffic)
         await db.refresh(subscription)
 
         purchase.subscription_url = subscription.subscription_url
@@ -2243,6 +2230,8 @@ async def _find_succeeded_provider_payment(
     from sqlalchemy.types import JSON as SA_JSON
 
     from app.database.models import (
+        AnorePayment,
+        CisPayPayment,
         CloudPaymentsPayment,
         CryptoBotPayment,
         FreekassaPayment,
@@ -2302,6 +2291,19 @@ async def _find_succeeded_provider_payment(
         model = Pal24Payment
         payment_id_attr = 'bill_id'
         extra_conditions = [Pal24Payment.is_paid.is_(True)]
+    elif base_method == 'cispay':
+        model = CisPayPayment
+        payment_id_attr = 'order_id'
+        extra_conditions = [CisPayPayment.is_paid.is_(True), CisPayPayment.is_sandbox.is_(False)]
+    elif base_method == 'anore':
+        model = AnorePayment
+        # Guest creation and callbacks identify Anore purchases by local order.
+        payment_id_attr = 'order_id'
+        extra_conditions = [
+            AnorePayment.is_paid.is_(True),
+            AnorePayment.is_test.is_(False),
+            AnorePayment.anore_payment_id.is_not(None),
+        ]
     elif base_method == 'wata':
         model = WataPayment
         payment_id_attr = 'payment_link_id'
