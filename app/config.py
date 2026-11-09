@@ -256,6 +256,10 @@ class Settings(BaseSettings):
     REMNAWAVE_AUTH_TYPE: str = 'api_key'  # api_key, basic, bearer, cookies, caddy
     REMNAWAVE_USER_DESCRIPTION_TEMPLATE: str = 'Bot user: {full_name} {username}'
     REMNAWAVE_USER_USERNAME_TEMPLATE: str = 'user_{telegram_id}'
+    # Подхватывать ли существующий аккаунт панели по telegramId/email, когда точных
+    # ключей (remnawave_id, short_uuid) нет. Выключайте, если к одной панели
+    # подключено несколько ботов: иначе бот возьмёт аккаунт соседа.
+    REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL: bool = True
     REMNAWAVE_USER_DELETE_MODE: str = 'delete'  # "delete" или "disable"
     REMNAWAVE_AUTO_SYNC_ENABLED: bool = False
     REMNAWAVE_AUTO_SYNC_TIMES: str = '03:00'
@@ -548,6 +552,9 @@ class Settings(BaseSettings):
     TRAFFIC_THRESHOLD_GB_PER_DAY: float = 10.0  # Порог трафика в ГБ за сутки (для обратной совместимости)
     TRAFFIC_MONITORING_INTERVAL_HOURS: int = 24  # Интервал проверки в часах (для обратной совместимости)
     SUSPICIOUS_NOTIFICATIONS_TOPIC_ID: int | None = None
+    # Слать уведомления о превышении трафика только по пользователям, которых бот
+    # знает (есть в его базе по панельному id). Для нескольких ботов на одной панели.
+    TRAFFIC_NOTIFY_ONLY_BOT_USERS: bool = False
 
     # Новый мониторинг трафика v2
     # Быстрая проверка (текущий использованный трафик)

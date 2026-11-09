@@ -752,6 +752,24 @@ class TrafficMonitoringServiceV2:
         if not violations or not bot:
             return
 
+        # Мониторинг обходит всю панель, а на ней могут жить аккаунты других ботов.
+        # Фильтруем до лимита на число уведомлений, чтобы чужие не съедали слоты.
+        if settings.TRAFFIC_NOTIFY_ONLY_BOT_USERS:
+            own_violations: list[TrafficViolation] = []
+            async with AsyncSessionLocal() as db:
+                for violation in violations:
+                    if await get_user_by_remnawave_id(db, violation.user_id):
+                        own_violations.append(violation)
+            skipped = len(violations) - len(own_violations)
+            if skipped:
+                logger.info(
+                    '⏭️ Пропущены превышения трафика по аккаунтам, неизвестным этому боту',
+                    skipped=skipped,
+                )
+            violations = own_violations
+            if not violations:
+                return
+
         admin_service = AdminNotificationService(bot)
         topic_id = settings.SUSPICIOUS_NOTIFICATIONS_TOPIC_ID
         texts = get_texts(settings.DEFAULT_LANGUAGE) if topic_id else await admin_service._notification_texts()

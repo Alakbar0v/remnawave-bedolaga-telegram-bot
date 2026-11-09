@@ -1415,6 +1415,16 @@ class RemnaWaveService:
             await exit_stack.aclose()
 
     async def sync_users_from_panel(self, db: AsyncSession, sync_type: str = 'all') -> dict[str, int]:
+        # Полная синхронизация сопоставляет людей по telegramId/email и импортирует
+        # всех пользователей панели. С несколькими ботами на одной панели это
+        # втянет чужие аккаунты, поэтому при выключенном подхвате она не работает.
+        if not settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL:
+            logger.warning(
+                '⏭️ Синхронизация «панель → бот» пропущена: REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL=false '
+                '(режим нескольких ботов на одной панели)'
+            )
+            return {'created': 0, 'updated': 0, 'errors': 0, 'deleted': 0}
+
         # Выгрузка панели идёт минутами; транзакцию, с которой пришла сессия
         # (авторизация кабинета, middleware бота), на это время не держим.
         await release_transaction(db)
@@ -3050,6 +3060,15 @@ class RemnaWaveService:
         return panel_users
 
     async def cleanup_orphaned_subscriptions(self, db: AsyncSession) -> dict[str, int]:
+        # Очистка считает «лишними» подписки, чьего telegramId нет в панели, и
+        # деактивирует их. На общей панели нескольких ботов это даёт ложные срабатывания.
+        if not settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL:
+            logger.warning(
+                '⏭️ Очистка подписок пропущена: REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL=false '
+                '(режим нескольких ботов на одной панели)'
+            )
+            return {'deactivated': 0, 'errors': 0, 'checked': 0}
+
         try:
             stats = {'deactivated': 0, 'errors': 0, 'checked': 0}
 

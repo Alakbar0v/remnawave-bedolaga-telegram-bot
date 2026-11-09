@@ -900,8 +900,12 @@ class RemnaWaveWebhookService:
         if panel_user_id is not None:
             user = await get_user_by_remnawave_id(db, panel_user_id)
 
+        # Поиск по telegramId отключается настройкой: при нескольких ботах на одной
+        # панели у аккаунтов разных ботов совпадает telegramId.
+        adopt_by_telegram = settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL
+
         # Try top-level telegramId
-        if not user:
+        if not user and adopt_by_telegram:
             telegram_id = data.get('telegramId')
             if telegram_id:
                 try:
@@ -913,7 +917,7 @@ class RemnaWaveWebhookService:
 
         # Try nested user object (e.g. user_hwid_devices events).
         # Вложенный user.id уже учтён в _extract_panel_identity выше.
-        if not user:
+        if not user and adopt_by_telegram:
             nested_user = data.get('user')
             if isinstance(nested_user, dict):
                 nested_tid = nested_user.get('telegramId')

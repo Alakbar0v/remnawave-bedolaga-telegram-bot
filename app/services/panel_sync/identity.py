@@ -34,6 +34,7 @@ from dataclasses import dataclass
 import structlog
 from sqlalchemy import or_, select
 
+from app.config import settings
 from app.database.models import Subscription, User, UserStatus
 from app.external.remnawave_api import RemnaWaveUser
 
@@ -302,17 +303,20 @@ async def resolve_panel_identity(
                 return chosen
             remaining = [candidate for candidate in remaining if candidate is not chosen]
 
-    telegram_id = getattr(user, 'telegram_id', None)
-    if telegram_id:
-        chosen = await pick_own(await api.find_users_by_telegram_id(telegram_id))
-        if chosen is not None:
-            return PanelIdentity(panel_user=chosen, source='telegram', dead_recorded_ids=tuple(dead_recorded))
+    # Неточные ключи отключаются настройкой: с несколькими ботами на одной панели
+    # telegramId/email совпадают у аккаунтов разных ботов, и поиск берёт чужой.
+    if settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL:
+        telegram_id = getattr(user, 'telegram_id', None)
+        if telegram_id:
+            chosen = await pick_own(await api.find_users_by_telegram_id(telegram_id))
+            if chosen is not None:
+                return PanelIdentity(panel_user=chosen, source='telegram', dead_recorded_ids=tuple(dead_recorded))
 
-    email = getattr(user, 'email', None)
-    if email:
-        chosen = await pick_own(await api.find_users_by_email(email))
-        if chosen is not None:
-            return PanelIdentity(panel_user=chosen, source='email', dead_recorded_ids=tuple(dead_recorded))
+        email = getattr(user, 'email', None)
+        if email:
+            chosen = await pick_own(await api.find_users_by_email(email))
+            if chosen is not None:
+                return PanelIdentity(panel_user=chosen, source='email', dead_recorded_ids=tuple(dead_recorded))
 
     if adoption_error is not None:
         raise adoption_error

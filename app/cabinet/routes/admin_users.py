@@ -993,6 +993,7 @@ async def get_user_panel_info(
             # Fallback: search by telegram_id (single-tariff only)
             if (
                 not panel_user
+                and settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL
                 and subscription_id is None
                 and not settings.is_multi_tariff_enabled()
                 and user.telegram_id
@@ -1002,7 +1003,13 @@ async def get_user_panel_info(
                     panel_user = panel_users[0]
 
             # Fallback: search by email (single-tariff, OAuth users)
-            if not panel_user and subscription_id is None and not settings.is_multi_tariff_enabled() and user.email:
+            if (
+                not panel_user
+                and settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL
+                and subscription_id is None
+                and not settings.is_multi_tariff_enabled()
+                and user.email
+            ):
                 panel_users_by_email = await api.find_users_by_email(user.email)
                 if panel_users_by_email:
                     panel_user = panel_users_by_email[0]
@@ -3638,13 +3645,13 @@ async def get_user_sync_status(
                     panel_user = await api.get_user_by_id(effective_panel_user_id)
 
                 # Fallback: search by telegram_id
-                if not panel_user and user.telegram_id:
+                if not panel_user and settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL and user.telegram_id:
                     panel_users = await api.find_users_by_telegram_id(user.telegram_id)
                     if panel_users:
                         panel_user = panel_users[0]
 
                 # Fallback: search by email (OAuth users)
-                if not panel_user and user.email:
+                if not panel_user and settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL and user.email:
                     panel_users_by_email = await api.find_users_by_email(user.email)
                     if panel_users_by_email:
                         panel_user = panel_users_by_email[0]
@@ -3824,9 +3831,9 @@ async def sync_user_from_panel(
                     # the sibling-expiry corruption.
                     linked_ids = {s.remnawave_id for s in from_subs if s.id != selected_sub.id and s.remnawave_id}
                     candidates = []
-                    if user.telegram_id:
+                    if settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL and user.telegram_id:
                         candidates = list(await api.find_users_by_telegram_id(user.telegram_id) or [])
-                    if not candidates and user.email:
+                    if not candidates and settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL and user.email:
                         candidates = list(await api.find_users_by_email(user.email) or [])
                     orphans = [pu for pu in candidates if pu.id not in linked_ids]
                     if len(orphans) == 1:
@@ -3856,12 +3863,12 @@ async def sync_user_from_panel(
             elif user.remnawave_id:
                 panel_user = await api.get_user_by_id(user.remnawave_id)
 
-            if not panel_user and user.telegram_id:
+            if not panel_user and settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL and user.telegram_id:
                 panel_users = await api.find_users_by_telegram_id(user.telegram_id)
                 if panel_users:
                     panel_user = panel_users[0]
 
-            if not panel_user and user.email:
+            if not panel_user and settings.REMNAWAVE_ADOPT_BY_TELEGRAM_EMAIL and user.email:
                 panel_users_by_email = await api.find_users_by_email(user.email)
                 if panel_users_by_email:
                     panel_user = panel_users_by_email[0]
