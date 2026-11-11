@@ -300,7 +300,7 @@ def get_post_registration_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKe
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=texts.t('POST_REGISTRATION_TRIAL_BUTTON', '🚀 Подключиться бесплатно 🚀'),
+                    text=texts.t('POST_REGISTRATION_TRIAL_BUTTON', 'Подключиться бесплатно'),
                     icon_custom_emoji_id=ROCKET_ICON_CUSTOM_EMOJI_ID,
                     callback_data='trial_activate',
                 )

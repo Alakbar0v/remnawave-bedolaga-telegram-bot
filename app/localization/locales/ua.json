@@ -1236,7 +1236,7 @@
   "PERIOD_360_DAYS": "📅 360 днів - {settings.format_price(settings.PRICE_360_DAYS)}",
   "PERIOD_60_DAYS": "📅 60 днів - {settings.format_price(settings.PRICE_60_DAYS)}",
   "PERIOD_90_DAYS": "📅 90 днів - {settings.format_price(settings.PRICE_90_DAYS)}",
-  "POST_REGISTRATION_TRIAL_BUTTON": "🚀 Підключитися безкоштовно 🚀",
+  "POST_REGISTRATION_TRIAL_BUTTON": "Підключитися безкоштовно",
   "PRIVACY_POLICY_EMPTY_ALERT": "Політика конфіденційності ще не заповнена.",
   "PRIVACY_POLICY_HEADER": "🛡️ <b>Політика конфіденційності</b>",
   "PRIVACY_POLICY_NOT_AVAILABLE": "Політика конфіденційності тимчасово недоступна.",
