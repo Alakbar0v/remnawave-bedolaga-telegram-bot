@@ -43,6 +43,9 @@ INFO_ICON_CUSTOM_EMOJI_ID = '5429500104287488046'
 PROMOCODE_ICON_CUSTOM_EMOJI_ID = '5427289351476248624'
 SUPPORT_ICON_CUSTOM_EMOJI_ID = '5429623567417377644'
 
+# Статическая ссылка для подключения в главном меню (кнопка «Ссылка для подключения»).
+CONNECT_LINK_URL = 'https://sub.depka.org/rBm9aPuB0AB_QqHP'
+
 
 async def get_main_menu_keyboard_async(
     db: AsyncSession,
@@ -792,6 +795,16 @@ def get_main_menu_keyboard(
                     text=texts.t('BUY_TRAFFIC_BUTTON', '📈 Докупить трафик'), callback_data='buy_traffic'
                 )
             )
+
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                text='Ссылка для подключения',
+                icon_custom_emoji_id=CHAIN_ICON_CUSTOM_EMOJI_ID,
+                url=CONNECT_LINK_URL,
+            )
+        ]
+    )
 
     keyboard.append(
         [
