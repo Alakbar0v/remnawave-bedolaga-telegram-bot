@@ -495,6 +495,18 @@ def _build_subscriptions_table(subscriptions, texts) -> str:
     return f'<table bordered striped>{"".join(rows)}</table>'
 
 
+def has_active_subscription_for_menu(user: User) -> bool:
+    """Та же логика, что включает кнопки подписки в клавиатуре главного меню.
+
+    'limited' (трафик исчерпан) считается активной подпиской для UI.
+    """
+    subs = getattr(user, 'subscriptions', None) or []
+    if not subs:
+        single = getattr(user, 'subscription', None)
+        subs = [single] if single else []
+    return any(getattr(sub, 'is_active', False) or getattr(sub, 'actual_status', None) == 'limited' for sub in subs)
+
+
 async def _build_single_subscription_block(user: User, texts, db: AsyncSession) -> str:
     # Статусные строки берём из того же builder-а, что и классическое меню, —
     # единый источник правды для формулировок (см. tests/test_start_menu_text_consistency.py).
@@ -598,11 +610,12 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
     # Импорт локальный: keyboards.inline транзитивно тянет rich_menu (цикл).
     from app.keyboards.inline import CHAIN_ICON_CUSTOM_EMOJI_ID
 
-    connect_title = _rich_text(texts.t('MAIN_MENU_CONNECT_LINK_TITLE', 'Ссылка для подключения:'))
-    blocks.append(
-        f'<p><tg-emoji emoji-id="{CHAIN_ICON_CUSTOM_EMOJI_ID}">🔗</tg-emoji> <b>{connect_title}</b><br>'
-        f'<code>{html.escape(MAIN_MENU_CONNECT_LINK_URL)}</code></p>'
-    )
+    if has_active_subscription_for_menu(user):
+        connect_title = _rich_text(texts.t('MAIN_MENU_CONNECT_LINK_TITLE', 'Ссылка для подключения:'))
+        blocks.append(
+            f'<p><br><tg-emoji emoji-id="{CHAIN_ICON_CUSTOM_EMOJI_ID}">🔗</tg-emoji> <b>{connect_title}</b><br>'
+            f'<code>{html.escape(MAIN_MENU_CONNECT_LINK_URL)}</code></p>'
+        )
 
     hint_sections: list[str] = []
     try:
