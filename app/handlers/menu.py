@@ -44,7 +44,11 @@ from app.utils.promo_offer import (
     build_test_access_hint,
     get_user_active_promo_discount_percent,
 )
-from app.utils.rich_menu import MAIN_MENU_CONNECT_LINK_URL, try_edit_rich_main_menu
+from app.utils.rich_menu import (
+    MAIN_MENU_CONNECT_LINK_URL,
+    has_active_subscription_for_menu,
+    try_edit_rich_main_menu,
+)
 from app.utils.subscription_time import local_days_until
 from app.utils.telegram_html import (
     html_to_telegram,
@@ -1470,11 +1474,15 @@ async def get_main_menu_text(user, texts, db: AsyncSession):
 
     # Статическая ссылка для подключения — текстом, как в разделе «Подписка».
     # Эмодзи премиум — тот же, что был у кнопки подключения (CHAIN_ICON_CUSTOM_EMOJI_ID).
-    info_sections.append(
-        f'<tg-emoji emoji-id="{CHAIN_ICON_CUSTOM_EMOJI_ID}">🔗</tg-emoji> '
-        f'<b>{texts.t("MAIN_MENU_CONNECT_LINK_TITLE", "Ссылка для подключения:")}</b>\n'
-        f'<code>{MAIN_MENU_CONNECT_LINK_URL}</code>'
-    )
+    # Показываем только при активной подписке (как и кнопки подписки).
+    if has_active_subscription_for_menu(user):
+        # Ведущий перенос — чтобы ссылка не прилипала к блоку подписки (blockquote).
+        lead = '' if info_sections else '\n'
+        info_sections.append(
+            f'{lead}<tg-emoji emoji-id="{CHAIN_ICON_CUSTOM_EMOJI_ID}">🔗</tg-emoji> '
+            f'<b>{texts.t("MAIN_MENU_CONNECT_LINK_TITLE", "Ссылка для подключения:")}</b>\n'
+            f'<code>{MAIN_MENU_CONNECT_LINK_URL}</code>'
+        )
 
     if info_sections:
         extra_block = '\n\n'.join(section for section in info_sections if section)
