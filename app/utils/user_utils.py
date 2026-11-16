@@ -361,7 +361,13 @@ async def get_referral_analytics(db: AsyncSession, user_id: int) -> dict:
                 func.coalesce(func.sum(ReferralEarning.days_granted), 0).label('total_days'),
                 func.count(ReferralEarning.id).label('earnings_count'),
             )
-            .where(ReferralEarning.user_id == user_id, not_referee_directed())
+            # Служебный маркер регистрации (0 ₽) начислением не является: без
+            # исключения у каждого реферала счётчик был на 1 больше реального.
+            .where(
+                ReferralEarning.user_id == user_id,
+                not_referee_directed(),
+                ReferralEarning.reason != 'referral_registration_pending',
+            )
             .group_by(ReferralEarning.referral_id)
             # Дни участвуют в сортировке: на «дневной» программе все суммы равны
             # нулю, и в топ-5 попадали случайные пятеро, а реферал, принёсший
