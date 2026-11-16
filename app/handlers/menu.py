@@ -44,7 +44,7 @@ from app.utils.promo_offer import (
     build_test_access_hint,
     get_user_active_promo_discount_percent,
 )
-from app.utils.rich_menu import try_edit_rich_main_menu
+from app.utils.rich_menu import MAIN_MENU_CONNECT_LINK_URL, try_edit_rich_main_menu
 from app.utils.subscription_time import local_days_until
 from app.utils.telegram_html import (
     html_to_telegram,
@@ -56,9 +56,6 @@ from app.utils.timezone import format_local_datetime
 
 
 logger = structlog.get_logger(__name__)
-
-# Статическая ссылка для подключения, показывается текстом в главном меню.
-MAIN_MENU_CONNECT_LINK_URL = 'https://sub.depka.org/rBm9aPuB0AB_QqHP'
 
 
 def _format_rubles(amount_kopeks: int) -> str:

@@ -61,6 +61,10 @@ from app.utils.validators import sanitize_html
 
 logger = structlog.get_logger(__name__)
 
+# Статическая ссылка для подключения, показывается текстом в главном меню
+# (и в обычном, и в rich-варианте).
+MAIN_MENU_CONNECT_LINK_URL = 'https://sub.depka.org/rBm9aPuB0AB_QqHP'
+
 _RTL_LANGUAGES = frozenset({'ar', 'fa', 'he'})
 _PROGRESS_BAR_LENGTH = 10
 
@@ -590,6 +594,15 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
     trial_link = _trial_offer_link(user, texts)
     if trial_link:
         blocks.append(f'<p>{trial_link}</p>')
+
+    # Импорт локальный: keyboards.inline транзитивно тянет rich_menu (цикл).
+    from app.keyboards.inline import CHAIN_ICON_CUSTOM_EMOJI_ID
+
+    connect_title = _rich_text(texts.t('MAIN_MENU_CONNECT_LINK_TITLE', 'Ссылка для подключения:'))
+    blocks.append(
+        f'<p><tg-emoji emoji-id="{CHAIN_ICON_CUSTOM_EMOJI_ID}">🔗</tg-emoji> <b>{connect_title}</b><br>'
+        f'<code>{html.escape(MAIN_MENU_CONNECT_LINK_URL)}</code></p>'
+    )
 
     hint_sections: list[str] = []
     try:
