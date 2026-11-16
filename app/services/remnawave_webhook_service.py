@@ -453,6 +453,10 @@ class RemnaWaveWebhookService:
             logger.debug('RemnaWave node connection notifications disabled, skipping event', event_name=event_name)
             return True
 
+        if event_name in _ADMIN_TORRENT_BLOCKER_EVENTS and not settings.REMNAWAVE_WEBHOOK_NOTIFY_ADMIN_TORRENT_BLOCKER:
+            logger.debug('Admin torrent blocker notifications disabled, skipping event', event_name=event_name)
+            return True
+
         if not self._admin_service.is_enabled:
             logger.debug('Admin notifications disabled, skipping event', event_name=event_name)
             return True
