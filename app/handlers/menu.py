@@ -20,6 +20,7 @@ from app.database.crud.user_message import get_random_active_message
 from app.database.models import InfoPage, PromoGroup, User
 from app.handlers.subscription.traffic import add_traffic, handle_add_traffic
 from app.keyboards.inline import (
+    CHAIN_ICON_CUSTOM_EMOJI_ID,
     get_info_menu_keyboard,
     get_language_selection_keyboard,
     get_main_menu_keyboard_async,
@@ -1471,11 +1472,11 @@ async def get_main_menu_text(user, texts, db: AsyncSession):
         )
 
     # Статическая ссылка для подключения — текстом, как в разделе «Подписка».
+    # Эмодзи премиум — тот же, что был у кнопки подключения (CHAIN_ICON_CUSTOM_EMOJI_ID).
     info_sections.append(
-        texts.t(
-            'SUBSCRIPTION_CONNECT_LINK_SECTION',
-            '🔗 <b>Ссылка для подключения:</b>\n{subscription_url}',
-        ).format(subscription_url=f'<code>{MAIN_MENU_CONNECT_LINK_URL}</code>')
+        f'<tg-emoji emoji-id="{CHAIN_ICON_CUSTOM_EMOJI_ID}">🔗</tg-emoji> '
+        f'<b>{texts.t("MAIN_MENU_CONNECT_LINK_TITLE", "Ссылка для подключения:")}</b>\n'
+        f'<code>{MAIN_MENU_CONNECT_LINK_URL}</code>'
     )
 
     if info_sections:
