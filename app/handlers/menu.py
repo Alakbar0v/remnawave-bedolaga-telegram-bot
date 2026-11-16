@@ -56,6 +56,9 @@ from app.utils.timezone import format_local_datetime
 
 logger = structlog.get_logger(__name__)
 
+# Статическая ссылка для подключения, показывается текстом в главном меню.
+MAIN_MENU_CONNECT_LINK_URL = 'https://sub.depka.org/rBm9aPuB0AB_QqHP'
+
 
 def _format_rubles(amount_kopeks: int) -> str:
     rubles = Decimal(amount_kopeks) / Decimal(100)
@@ -1466,6 +1469,14 @@ async def get_main_menu_text(user, texts, db: AsyncSession):
             getattr=getattr(user, 'id', None),
             test_error=test_error,
         )
+
+    # Статическая ссылка для подключения — текстом, как в разделе «Подписка».
+    info_sections.append(
+        texts.t(
+            'SUBSCRIPTION_CONNECT_LINK_SECTION',
+            '🔗 <b>Ссылка для подключения:</b>\n{subscription_url}',
+        ).format(subscription_url=f'<code>{MAIN_MENU_CONNECT_LINK_URL}</code>')
+    )
 
     if info_sections:
         extra_block = '\n\n'.join(section for section in info_sections if section)
