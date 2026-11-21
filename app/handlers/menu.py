@@ -45,8 +45,7 @@ from app.utils.promo_offer import (
     get_user_active_promo_discount_percent,
 )
 from app.utils.rich_menu import (
-    MAIN_MENU_CONNECT_LINK_URL,
-    has_active_subscription_for_menu,
+    get_menu_connect_link,
     try_edit_rich_main_menu,
 )
 from app.utils.subscription_time import local_days_until
@@ -1472,16 +1471,17 @@ async def get_main_menu_text(user, texts, db: AsyncSession):
             test_error=test_error,
         )
 
-    # Статическая ссылка для подключения — текстом, как в разделе «Подписка».
+    # Реальная ссылка для подключения пользователя — текстом, как в разделе «Подписка».
     # Эмодзи премиум — тот же, что был у кнопки подключения (CHAIN_ICON_CUSTOM_EMOJI_ID).
     # Показываем только при активной подписке (как и кнопки подписки).
-    if has_active_subscription_for_menu(user):
+    connect_url = get_menu_connect_link(user)
+    if connect_url:
         # Ведущий перенос — чтобы ссылка не прилипала к блоку подписки (blockquote).
         lead = '' if info_sections else '\n'
         info_sections.append(
             f'{lead}<tg-emoji emoji-id="{CHAIN_ICON_CUSTOM_EMOJI_ID}">🔗</tg-emoji> '
             f'<b>{texts.t("MAIN_MENU_CONNECT_LINK_TITLE", "Ссылка для подключения:")}</b>\n'
-            f'<code>{MAIN_MENU_CONNECT_LINK_URL}</code>'
+            f'<code>{html.escape(connect_url)}</code>'
         )
 
     if info_sections:

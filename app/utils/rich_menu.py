@@ -54,16 +54,12 @@ from app.utils.promo_offer import build_promo_offer_hint, build_test_access_hint
 from app.utils.rich_buttons import render_keyboard_as_rich_html
 from app.utils.rich_media import prepare_rich_message
 from app.utils.subscription_time import local_days_until
-from app.utils.subscription_utils import get_happ_cryptolink_redirect_link
+from app.utils.subscription_utils import get_display_subscription_link, get_happ_cryptolink_redirect_link
 from app.utils.timezone import format_local_datetime
 from app.utils.validators import sanitize_html
 
 
 logger = structlog.get_logger(__name__)
-
-# Статическая ссылка для подключения, показывается текстом в главном меню
-# (и в обычном, и в rich-варианте).
-MAIN_MENU_CONNECT_LINK_URL = 'https://sub.depka.org/rBm9aPuB0AB_QqHP'
 
 _RTL_LANGUAGES = frozenset({'ar', 'fa', 'he'})
 _PROGRESS_BAR_LENGTH = 10
@@ -507,6 +503,27 @@ def has_active_subscription_for_menu(user: User) -> bool:
     return any(getattr(sub, 'is_active', False) or getattr(sub, 'actual_status', None) == 'limited' for sub in subs)
 
 
+def get_menu_connect_link(user: User) -> str:
+    """Реальная ссылка подключения пользователя для главного меню.
+
+    Та же ссылка, что в разделе «Подписка» (get_display_subscription_link):
+    учитывает happ-cryptolink режим. Пустая строка — если активной подписки нет
+    или оператор скрыл ссылки подписки.
+    """
+    if settings.should_hide_subscription_link():
+        return ''
+    subs = list(getattr(user, 'subscriptions', None) or [])
+    single = getattr(user, 'subscription', None)
+    if single is not None:
+        subs.insert(0, single)
+    for sub in subs:
+        if getattr(sub, 'is_active', False) or getattr(sub, 'actual_status', None) == 'limited':
+            link = get_display_subscription_link(sub)
+            if link:
+                return link
+    return ''
+
+
 async def _build_single_subscription_block(user: User, texts, db: AsyncSession) -> str:
     # Статусные строки берём из того же builder-а, что и классическое меню, —
     # единый источник правды для формулировок (см. tests/test_start_menu_text_consistency.py).
@@ -610,11 +627,12 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
     # Импорт локальный: keyboards.inline транзитивно тянет rich_menu (цикл).
     from app.keyboards.inline import CHAIN_ICON_CUSTOM_EMOJI_ID
 
-    if has_active_subscription_for_menu(user):
+    connect_url = get_menu_connect_link(user)
+    if connect_url:
         connect_title = _rich_text(texts.t('MAIN_MENU_CONNECT_LINK_TITLE', 'Ссылка для подключения:'))
         blocks.append(
             f'<p><br><tg-emoji emoji-id="{CHAIN_ICON_CUSTOM_EMOJI_ID}">🔗</tg-emoji> <b>{connect_title}</b><br>'
-            f'<code>{html.escape(MAIN_MENU_CONNECT_LINK_URL)}</code></p>'
+            f'<code>{html.escape(connect_url)}</code></p>'
         )
 
     hint_sections: list[str] = []
