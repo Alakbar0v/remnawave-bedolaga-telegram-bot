@@ -1477,7 +1477,7 @@ async def get_main_menu_text(user, texts, db: AsyncSession):
     connect_url = get_menu_connect_link(user)
     if connect_url:
         # Ведущий перенос — чтобы ссылка не прилипала к блоку подписки (blockquote).
-        lead = '' if info_sections else '\n'
+        lead = ('' if info_sections else '\n') + '\n'
         info_sections.append(
             f'{lead}<tg-emoji emoji-id="{CHAIN_ICON_CUSTOM_EMOJI_ID}">🔗</tg-emoji> '
             f'<b>{texts.t("MAIN_MENU_CONNECT_LINK_TITLE", "Ссылка для подключения:")}</b>\n'
