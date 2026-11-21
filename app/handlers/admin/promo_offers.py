@@ -40,7 +40,11 @@ from app.database.models import (
     User,
     UserStatus,
 )
-from app.keyboards.inline import CHAIN_ICON_CUSTOM_EMOJI_ID, get_happ_download_button_row
+from app.keyboards.inline import (
+    CHAIN_ICON_CUSTOM_EMOJI_ID,
+    add_subscription_mirror_selector,
+    get_happ_download_button_row,
+)
 from app.localization.texts import get_texts
 from app.services.user_service import UserService
 from app.states import AdminStates
@@ -2084,7 +2088,9 @@ def _build_connect_button_rows(user: User, texts) -> list[list[InlineKeyboardBut
     if happ_row:
         rows.append(happ_row)
 
-    return rows
+    return add_subscription_mirror_selector(
+        InlineKeyboardMarkup(inline_keyboard=rows), subscription, user.language
+    ).inline_keyboard
 
 
 async def _send_offer_to_users(
