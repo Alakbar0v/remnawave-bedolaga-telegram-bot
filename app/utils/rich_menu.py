@@ -631,7 +631,7 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
     if connect_url:
         connect_title = _rich_text(texts.t('MAIN_MENU_CONNECT_LINK_TITLE', 'Ссылка для подключения:'))
         blocks.append(
-            f'<br><br><p><tg-emoji emoji-id="{CHAIN_ICON_CUSTOM_EMOJI_ID}">🔗</tg-emoji> <b>{connect_title}</b><br>'
+            f'<br><p><tg-emoji emoji-id="{CHAIN_ICON_CUSTOM_EMOJI_ID}">🔗</tg-emoji> <b>{connect_title}</b><br>'
             f'<code>{html.escape(connect_url)}</code></p>'
         )
 
