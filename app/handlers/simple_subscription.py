@@ -1,5 +1,6 @@
 """Обработчики для простой покупки подписки."""
 
+import asyncio
 import html
 from typing import Any
 
@@ -11,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import User
-from app.keyboards.inline import CHAIN_ICON_CUSTOM_EMOJI_ID, get_happ_download_button_row
+from app.keyboards.inline import (
+    CHAIN_ICON_CUSTOM_EMOJI_ID,
+    add_subscription_mirror_selector,
+    get_happ_download_button_row,
+)
 from app.localization.texts import get_texts
 from app.services.payment_service import PaymentService
 from app.services.subscription_purchase_service import SubscriptionPurchaseService
@@ -381,6 +386,18 @@ def _get_simple_subscription_payment_keyboard(language: str) -> types.InlineKeyb
             ]
         )
 
+    if settings.is_payhot_enabled():
+        keyboard.append(
+            [
+                types.InlineKeyboardButton(
+                    text=texts.t('SUBSCRIPTION_UI_TOPUP_PROVIDER', '💳 Пополнить баланс: {provider}').format(
+                        provider=settings.get_payhot_display_name()
+                    ),
+                    callback_data='topup_payhot',
+                )
+            ]
+        )
+
     if settings.is_wata_enabled():
         keyboard.append([types.InlineKeyboardButton(text='💳 WATA', callback_data='simple_subscription_wata')])
 
@@ -539,7 +556,9 @@ async def handle_simple_subscription_pay_with_balance(
     from app.database.crud.subscription import get_subscription_by_user_id
 
     existing_subscription = await get_subscription_by_user_id(db, db_user.id)
-    managed_purchase = getattr(existing_subscription, 'traffic_accounting_mode', None) in ('managed', 'migrating')
+    atomic_purchase = bool(existing_subscription and existing_subscription.is_trial) or getattr(
+        existing_subscription, 'traffic_accounting_mode', None
+    ) in ('managed', 'migrating')
     purchase_user_id = db_user.id
     try:
         # Списываем средства с баланса пользователя
@@ -551,7 +570,7 @@ async def handle_simple_subscription_pay_with_balance(
             purchase_description,
             consume_promo_offer=consume_promo,
             mark_as_paid_subscription=True,
-            commit=not managed_purchase,
+            commit=not atomic_purchase,
         )
 
         if not success:
@@ -572,13 +591,14 @@ async def handle_simple_subscription_pay_with_balance(
             amount_kopeks=price_kopeks,
             description=purchase_description,
             payment_method=PaymentMethod.BALANCE,
-            commit=not managed_purchase,
+            commit=not atomic_purchase,
         )
 
         # Проверяем, есть ли у пользователя уже подписка
-        from app.database.crud.subscription import extend_subscription, get_subscription_by_user_id
+        from app.database.crud.subscription import extend_subscription
 
-        existing_subscription = await get_subscription_by_user_id(db, db_user.id)
+        # Reuse the pre-debit snapshot: the status-updating getter may commit
+        # when a trial expires, exposing a debit before its conversion.
 
         reset_traffic = settings.RESET_TRAFFIC_ON_PAYMENT or bool(
             existing_subscription and existing_subscription.is_trial
@@ -592,12 +612,13 @@ async def handle_simple_subscription_pay_with_balance(
                 db=db,
                 subscription=existing_subscription,
                 days=subscription_params['period_days'],
+                paid_trial_conversion=was_trial,
                 traffic_limit_gb=subscription_params['traffic_limit_gb'],
                 device_limit=subscription_params['device_limit'],
                 connected_squads=[resolved_squad_uuid] if resolved_squad_uuid else None,
                 paid_traffic_reset=False,
                 reset_used_traffic=reset_traffic,
-                commit=not managed_purchase,
+                commit=not atomic_purchase,
             )
 
             # Если текущая подписка была пробной, и мы обновляем её
@@ -610,7 +631,7 @@ async def handle_simple_subscription_pay_with_balance(
                 subscription.is_trial = False
 
             await db.commit()
-            if managed_purchase:
+            if atomic_purchase:
                 from app.database.crud.transaction import emit_transaction_side_effects
 
                 await emit_transaction_side_effects(
@@ -808,7 +829,11 @@ async def handle_simple_subscription_pay_with_balance(
 
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
-        await callback.message.edit_text(success_message, reply_markup=keyboard, parse_mode='HTML')
+        await callback.message.edit_text(
+            success_message,
+            reply_markup=add_subscription_mirror_selector(keyboard, subscription, db_user.language),
+            parse_mode='HTML',
+        )
 
         # Отправляем уведомление админам
         try:
@@ -837,8 +862,12 @@ async def handle_simple_subscription_pay_with_balance(
             price_kopeks=price_kopeks / 100,
         )
 
+    except asyncio.CancelledError:
+        if atomic_purchase:
+            await db.rollback()
+        raise
     except Exception as error:
-        if managed_purchase:
+        if atomic_purchase:
             await db.rollback()
         logger.error(
             'Ошибка оплаты простой подписки с баланса для пользователя',
@@ -2720,7 +2749,9 @@ async def confirm_simple_subscription_purchase(
     from app.database.crud.subscription import get_subscription_by_user_id
 
     existing_subscription = await get_subscription_by_user_id(db, db_user.id)
-    managed_purchase = getattr(existing_subscription, 'traffic_accounting_mode', None) in ('managed', 'migrating')
+    atomic_purchase = bool(existing_subscription and existing_subscription.is_trial) or getattr(
+        existing_subscription, 'traffic_accounting_mode', None
+    ) in ('managed', 'migrating')
     purchase_user_id = db_user.id
     try:
         # Списываем средства с баланса пользователя
@@ -2732,7 +2763,7 @@ async def confirm_simple_subscription_purchase(
             purchase_description,
             consume_promo_offer=consume_promo,
             mark_as_paid_subscription=True,
-            commit=not managed_purchase,
+            commit=not atomic_purchase,
         )
 
         if not success:
@@ -2753,13 +2784,14 @@ async def confirm_simple_subscription_purchase(
             amount_kopeks=price_kopeks,
             description=purchase_description,
             payment_method=PaymentMethod.BALANCE,
-            commit=not managed_purchase,
+            commit=not atomic_purchase,
         )
 
         # Проверяем, есть ли у пользователя уже подписка
-        from app.database.crud.subscription import extend_subscription, get_subscription_by_user_id
+        from app.database.crud.subscription import extend_subscription
 
-        existing_subscription = await get_subscription_by_user_id(db, db_user.id)
+        # Reuse the pre-debit snapshot: the status-updating getter may commit
+        # when a trial expires, exposing a debit before its conversion.
 
         reset_traffic = settings.RESET_TRAFFIC_ON_PAYMENT or bool(
             existing_subscription and existing_subscription.is_trial
@@ -2773,12 +2805,13 @@ async def confirm_simple_subscription_purchase(
                 db=db,
                 subscription=existing_subscription,
                 days=subscription_params['period_days'],
+                paid_trial_conversion=was_trial,
                 traffic_limit_gb=subscription_params['traffic_limit_gb'],
                 device_limit=subscription_params['device_limit'],
                 connected_squads=[resolved_squad_uuid] if resolved_squad_uuid else None,
                 paid_traffic_reset=False,
                 reset_used_traffic=reset_traffic,
-                commit=not managed_purchase,
+                commit=not atomic_purchase,
             )
 
             # Если текущая подписка была пробной, и мы обновляем её
@@ -2791,7 +2824,7 @@ async def confirm_simple_subscription_purchase(
                 subscription.is_trial = False
 
             await db.commit()
-            if managed_purchase:
+            if atomic_purchase:
                 from app.database.crud.transaction import emit_transaction_side_effects
 
                 await emit_transaction_side_effects(
@@ -2989,7 +3022,11 @@ async def confirm_simple_subscription_purchase(
 
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
-        await callback.message.edit_text(success_message, reply_markup=keyboard, parse_mode='HTML')
+        await callback.message.edit_text(
+            success_message,
+            reply_markup=add_subscription_mirror_selector(keyboard, subscription, db_user.language),
+            parse_mode='HTML',
+        )
 
         # Отправляем уведомление админам
         try:
@@ -3018,8 +3055,12 @@ async def confirm_simple_subscription_purchase(
             price_kopeks=price_kopeks / 100,
         )
 
+    except asyncio.CancelledError:
+        if atomic_purchase:
+            await db.rollback()
+        raise
     except Exception as error:
-        if managed_purchase:
+        if atomic_purchase:
             await db.rollback()
         logger.error(
             'Ошибка подтверждения простой подписки с баланса для пользователя',
